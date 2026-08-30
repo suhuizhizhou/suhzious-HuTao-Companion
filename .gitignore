@@ -1,0 +1,55 @@
+# ── Python / 深度学习 ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── GPT-SoVITS 第三方项目（需自行 clone + 下载模型，见 README）──
+voice/GPT-SoVITS-main/
+
+# ── 模型权重（体积大，不提交）──
+*.ckpt
+*.safetensors
+*.pth
+*.bin
+*.onnx
+*.pt
+
+# ── 语音数据（体积大，需自行提取，见 README）──
+data/voice/raw/
+data/voice/wem_tmp/
+data/voice/hutao/
+data/voice/dataset/
+voice/checkpoints/
+voice/outputs/
+
+# ── 运行时用户数据 ──
+data/chat_log.json
+.env
+
+# ── 下载的参考数据（体积大）──
+data/persona/AvatarExcelConfigData.json
+data/persona/TextMapCHS.json
+
+# ── 下载的工具与中间产物 ──
+tools/
+
+# ── 个人笔记（写给自己看的，不公开）──
+notes/
+
+# ── 构建产物 ──
+bin/
+obj/
+agent/.nuget/
+agent/.dotnet-home/
+frontend/dist/
+frontend/node_modules/
+*.user
+
+# ── 日志与缓存 ──
+*.log
+.DS_Store
+Thumbs.db

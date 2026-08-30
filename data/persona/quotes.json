@@ -1,0 +1,760 @@
+{
+  "signature_voices": [
+    {
+      "text": "好了，我们也该重新出发了，我可不想错过新生意。",
+      "source_file": "vo_HTLQ001_11_hutao_05.wem",
+      "category": "剧情",
+      "duration_ms": 4007
+    },
+    {
+      "text": "没关系，了解一下嘛，我们最近推出了新的优惠活动。",
+      "source_file": "vo_HTLQ001_14_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 3878
+    },
+    {
+      "text": "哦？！哦？！",
+      "source_file": "vo_EQHDJ501_3_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 2674
+    },
+    {
+      "text": "居然把叔公都给搬出来了？白术，你究竟在打什么算盘？",
+      "source_file": "vo_BZLQ001_4_hutao_11.wem",
+      "category": "剧情",
+      "duration_ms": 5450
+    },
+    {
+      "text": "去拜访重要的「潜在客户」，我来带路。",
+      "source_file": "vo_HTLQ001_11_hutao_19.wem",
+      "category": "剧情",
+      "duration_ms": 2659
+    },
+    {
+      "text": "居然已经去了这么多地方了！",
+      "source_file": "vo_ZBLQ001_13_hutao_14.wem",
+      "category": "剧情",
+      "duration_ms": 2788
+    },
+    {
+      "text": "啊？难不成你们刚刚以为我是在「业务拓展」？！",
+      "source_file": "vo_HTLQ001_14_hutao_08.wem",
+      "category": "剧情",
+      "duration_ms": 3687
+    },
+    {
+      "text": "走吧！听话一点对大家都好。",
+      "source_file": "vo_HTLQ004_1_hutao_11.wem",
+      "category": "剧情",
+      "duration_ms": 2741
+    },
+    {
+      "text": "客卿，我总觉得你那位好久不见的朋友，有点莫名其妙呢。",
+      "source_file": "vo_ZBLQ001_13_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 5590
+    },
+    {
+      "text": "哦呀，想和本堂主切磋一下？好呀，别说我欺负你噢？",
+      "source_file": "vo_card_hutao_invite_easy_01.wem",
+      "category": "卡牌",
+      "duration_ms": 5586
+    },
+    {
+      "text": "嘿嘿…你会跟我来的吧！",
+      "source_file": "vo_mimiTomo_ly_hutao_villiage_03.wem",
+      "category": "其他",
+      "duration_ms": 1990
+    },
+    {
+      "text": "就是要给人这样的感觉，才能把擅闯者吓跑嘛。",
+      "source_file": "vo_HTLQ004_1_hutao_20.wem",
+      "category": "剧情",
+      "duration_ms": 3407
+    },
+    {
+      "text": "冒险？哦，我猜，你应该是冒险家协会的成员吧。",
+      "source_file": "vo_HTLQ001_3_hutao_14.wem",
+      "category": "剧情",
+      "duration_ms": 5444
+    },
+    {
+      "text": "好啦好啦，跟上来，准备出发了。",
+      "source_file": "vo_HTLQ001_11_hutao_17.wem",
+      "category": "剧情",
+      "duration_ms": 1976
+    },
+    {
+      "text": "咦？兹白小姐，你知道我们往生堂和八奇的事吗？",
+      "source_file": "vo_ZBLQ001_13_hutao_16.wem",
+      "category": "剧情",
+      "duration_ms": 5207
+    },
+    {
+      "text": "…沉玉谷这一脉治病救人的方法，更是有悖生死。",
+      "source_file": "vo_BZLQ001_6_hutao_14.wem",
+      "category": "剧情",
+      "duration_ms": 3731
+    },
+    {
+      "text": "要是有那种事，本堂主动动手指就解决喽！",
+      "source_file": "vo_hutao_mimitomo_night_03.wem",
+      "category": "好感度",
+      "duration_ms": 3617
+    },
+    {
+      "text": "这个嘛，你们听说过「夜叉」的历史吗？",
+      "source_file": "vo_HTLQ002_2_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 3100
+    },
+    {
+      "text": "欸？这就要回去啦？",
+      "source_file": "vo_EQHDJ501_15_hutao_04.wem",
+      "category": "剧情",
+      "duration_ms": 1968
+    },
+    {
+      "text": "心不心动？要不要来？嘻嘻，那就说定咯。",
+      "source_file": "vo_hutao_mimitomo_friendship2_02a_3.wem",
+      "category": "好感度",
+      "duration_ms": 3922
+    },
+    {
+      "text": "玄妙之事怎么能用说的？天下万物，眼见为实。",
+      "source_file": "vo_hutao_mimitomo_friendship2_02a_1.wem",
+      "category": "好感度",
+      "duration_ms": 5654
+    },
+    {
+      "text": "不愧是好友你呀，本堂主输都输得畅快。",
+      "source_file": "vo_card_hutao_invite_hard_03.wem",
+      "category": "卡牌",
+      "duration_ms": 3780
+    },
+    {
+      "text": "我是来帮老孟找人的，之前提到的狼哥，还记得吗？",
+      "source_file": "vo_HTLQ001_14_hutao_10.wem",
+      "category": "剧情",
+      "duration_ms": 3561
+    },
+    {
+      "text": "对吧？就知道你是个有眼光的人，懂得欣赏本堂主的诗歌。",
+      "source_file": "vo_hutao_mimitomo_friendship2_02b_4.wem",
+      "category": "好感度",
+      "duration_ms": 5371
+    },
+    {
+      "text": "真不用我来帮忙吗？做一道送一道哦！",
+      "source_file": "vo_hutao_spice_normal_01.wem",
+      "category": "料理",
+      "duration_ms": 2584
+    },
+    {
+      "text": "不过，有我胡桃陪着你，就不必担心啦。",
+      "source_file": "vo_mimiTomo_ly_hutao_bedroom_02.wem",
+      "category": "其他",
+      "duration_ms": 3274
+    },
+    {
+      "text": "我相信你的手艺足够吸引鬼神！",
+      "source_file": "vo_EQHDJ501_4_hutao_05.wem",
+      "category": "剧情",
+      "duration_ms": 3694
+    },
+    {
+      "text": "派蒙，没有说漏嘴吧？",
+      "source_file": "vo_HTLQ004_1_hutao_02.wem",
+      "category": "剧情",
+      "duration_ms": 2346
+    },
+    {
+      "text": "噢~所以客卿是想让她多认识点新朋友啊？",
+      "source_file": "vo_ZBLQ001_13_hutao_06.wem",
+      "category": "剧情",
+      "duration_ms": 4388
+    },
+    {
+      "text": "可以啊，你不忌讳去往生堂就行。",
+      "source_file": "vo_hutao_mimitomo_friendship1_03b_1.wem",
+      "category": "好感度",
+      "duration_ms": 2958
+    },
+    {
+      "text": "说起来，你们有看到七七吗？",
+      "source_file": "vo_dialog_BZLQ001_hutao_01.wem",
+      "category": "对话",
+      "duration_ms": 2099
+    },
+    {
+      "text": "哎呀，别管那些了，刚才动脑筋太多，本堂主肚子也要饿扁了。",
+      "source_file": "vo_anecdote_106701_hutao_06.wem",
+      "category": "其他",
+      "duration_ms": 5668
+    },
+    {
+      "text": "等一下，刚才都忘记说了，海灯节快乐！",
+      "source_file": "vo_EQHDJ501_4_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 4554
+    },
+    {
+      "text": "总之，速速开工！新来的，去启动装置。",
+      "source_file": "vo_HTLQ002_2_hutao_24.wem",
+      "category": "剧情",
+      "duration_ms": 3758
+    },
+    {
+      "text": "这个我熟，连你们「问不到的人」，我都可以帮你们问到喔。",
+      "source_file": "vo_HTLQ001_3_hutao_23.wem",
+      "category": "剧情",
+      "duration_ms": 4069
+    },
+    {
+      "text": "你好，我是往生堂的堂主，胡桃。",
+      "source_file": "vo_HTLQ001_12_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 2441
+    },
+    {
+      "text": "因为是幽灵嘛，理所当然地保持着他当年的样子。",
+      "source_file": "vo_HTLQ002_4_hutao_12.wem",
+      "category": "剧情",
+      "duration_ms": 3844
+    },
+    {
+      "text": "哦哦，对哦，忘记说了，哈哈，但是无所谓吧。",
+      "source_file": "vo_HTLQ002_2_hutao_22.wem",
+      "category": "剧情",
+      "duration_ms": 4352
+    },
+    {
+      "text": "就是我们一开始见面的地方。我随便想的名字，不要每句话都追问！",
+      "source_file": "vo_HTLQ004_5_hutao_13.wem",
+      "category": "剧情",
+      "duration_ms": 5275
+    },
+    {
+      "text": "狼哥，现在你应该很满足了吧？",
+      "source_file": "vo_HTLQ004_7_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 2350
+    },
+    {
+      "text": "老孟，我回来啦！很遗憾，还是没找到狼哥。",
+      "source_file": "vo_HTLQ002_1_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 4031
+    },
+    {
+      "text": "哦哦，我明白了！你是觉得我们的优惠，不够周全，对吧？",
+      "source_file": "vo_HTLQ001_5_hutao_17.wem",
+      "category": "剧情",
+      "duration_ms": 3688
+    },
+    {
+      "text": "说走就走？别让魔物等急啦。",
+      "source_file": "vo_hutao_saferoom_challenge_03.wem",
+      "category": "其他",
+      "duration_ms": 2496
+    },
+    {
+      "text": "欸？你们是在安慰我吗？",
+      "source_file": "vo_HTLQ001_14_hutao_05.wem",
+      "category": "剧情",
+      "duration_ms": 1919
+    },
+    {
+      "text": "「业务拓展」？嗯？「业务拓展」…",
+      "source_file": "vo_HTLQ001_14_hutao_07.wem",
+      "category": "剧情",
+      "duration_ms": 3694
+    },
+    {
+      "text": "你们不会想，就这么带他回不卜庐吧？",
+      "source_file": "vo_BZLQ001_4_hutao_07.wem",
+      "category": "剧情",
+      "duration_ms": 2498
+    },
+    {
+      "text": "#喂，{NICKNAME}，别不解风情啦。",
+      "source_file": "vo_HTLQ004_4_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 1897
+    },
+    {
+      "text": "哦？你不是向来防着我吗？这次倒挺大方。",
+      "source_file": "vo_BZLQ001_4_hutao_12.wem",
+      "category": "剧情",
+      "duration_ms": 4246
+    },
+    {
+      "text": "没什么啦，是老孟之前拜托我的事，小菜一碟，很快就能解决。",
+      "source_file": "vo_HTLQ001_11_hutao_18.wem",
+      "category": "剧情",
+      "duration_ms": 4459
+    },
+    {
+      "text": "我们关系这么好，你肯定不会介意的吧？",
+      "source_file": "vo_hutao_mimitomo_friendship3_09.wem",
+      "category": "好感度",
+      "duration_ms": 3365
+    },
+    {
+      "text": "——但你究竟是怎么在一夜之间做到的？",
+      "source_file": "vo_BZLQ001_7_hutao_02.wem",
+      "category": "剧情",
+      "duration_ms": 2075
+    },
+    {
+      "text": "哟，两位大忙人，找本堂主有何贵干呀？",
+      "source_file": "vo_BZLQ001_6_hutao_02.wem",
+      "category": "剧情",
+      "duration_ms": 3473
+    },
+    {
+      "text": "村里的气氛还不错，我随便转转，就有了诗兴！",
+      "source_file": "vo_mimiTomo_ly_hutao_villiage_01.wem",
+      "category": "其他",
+      "duration_ms": 3639
+    },
+    {
+      "text": "哈哈哈。那么，最后的最后，每人都给狼哥送上一句告别吧。",
+      "source_file": "vo_HTLQ004_7_hutao_04.wem",
+      "category": "剧情",
+      "duration_ms": 5411
+    },
+    {
+      "text": "本堂主略施小计，你就败下阵来了，嘿嘿嘿。",
+      "source_file": "vo_card_hutao_invite_easy_02.wem",
+      "category": "卡牌",
+      "duration_ms": 5020
+    },
+    {
+      "text": "就是，客卿走到哪没茶喝呀？还缺这点吗？",
+      "source_file": "vo_ZBLQ001_13_hutao_12.wem",
+      "category": "剧情",
+      "duration_ms": 3847
+    },
+    {
+      "text": "不过，预定时间还得准一些。否则，得多花好多力气呢！",
+      "source_file": "vo_HTLQ001_3_hutao_10.wem",
+      "category": "剧情",
+      "duration_ms": 5350
+    },
+    {
+      "text": "对嘛对嘛，而且你这么想，谁都会有被烧掉的一天。",
+      "source_file": "vo_HTLQ004_7_hutao_06.wem",
+      "category": "剧情",
+      "duration_ms": 4281
+    },
+    {
+      "text": "如何？给点反馈吧。",
+      "source_file": "vo_hutao_mimitomo_friendship2_02b_3.wem",
+      "category": "好感度",
+      "duration_ms": 2235
+    },
+    {
+      "text": "欸欸——？！难道你在指望往生堂堂主去治病救人吗？",
+      "source_file": "vo_HTLQ001_14_hutao_15.wem",
+      "category": "剧情",
+      "duration_ms": 3460
+    },
+    {
+      "text": "没想到你这么认真，没关系啦，只要跟着我，慢慢都会理解的。",
+      "source_file": "vo_HTLQ001_11_hutao_16.wem",
+      "category": "剧情",
+      "duration_ms": 4563
+    },
+    {
+      "text": "怎么样，是不是觉得诅咒全都被驱散了？",
+      "source_file": "vo_HTLQ002_4_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 3402
+    },
+    {
+      "text": "确实，因为冒险家协会是新客，所以我提供了大量优惠。",
+      "source_file": "vo_HTLQ001_5_hutao_18.wem",
+      "category": "剧情",
+      "duration_ms": 4551
+    },
+    {
+      "text": "嗯~我还没玩够呢，等会再去找人切磋两局。",
+      "source_file": "vo_card_hutao_leave_01.wem",
+      "category": "卡牌",
+      "duration_ms": 3160
+    },
+    {
+      "text": "所以，你们获取信物的时候，也务必注意方法哦！",
+      "source_file": "vo_HTLQ003_1_hutao_10.wem",
+      "category": "剧情",
+      "duration_ms": 3763
+    },
+    {
+      "text": "哦？怎么样，比想象中要友善和通情达理对吧？",
+      "source_file": "vo_HTLQ001_11_hutao_11.wem",
+      "category": "剧情",
+      "duration_ms": 4106
+    },
+    {
+      "text": "但问题就在这里！传达不出这种感觉，就没有回头客了。",
+      "source_file": "vo_dialog_HTLQ001_hutao_03.wem",
+      "category": "对话",
+      "duration_ms": 4321
+    },
+    {
+      "text": "突然来找我，怎么怎么？想我了吗？",
+      "source_file": "vo_hutao_mimitomo_hello_02.wem",
+      "category": "好感度",
+      "duration_ms": 2991
+    },
+    {
+      "text": "该是你的，就总是你的喽？",
+      "source_file": "vo_hutao_saferoom_rest_03.wem",
+      "category": "其他",
+      "duration_ms": 2786
+    },
+    {
+      "text": "唉，只能先回往生堂了。",
+      "source_file": "vo_HTLQ001_4_hutao_08.wem",
+      "category": "剧情",
+      "duration_ms": 1887
+    },
+    {
+      "text": "哎呀，客卿快看，是谁来了！",
+      "source_file": "vo_ZBLQ001_13_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 2430
+    },
+    {
+      "text": "待我好好研究一番！新来的伙计，麻烦等我一下，不会耽搁太久的。",
+      "source_file": "vo_HTLQ001_5_hutao_20.wem",
+      "category": "剧情",
+      "duration_ms": 5302
+    },
+    {
+      "text": "啊！你说…会不会是白术这家伙，先一步把她藏起来了？",
+      "source_file": "vo_dialog_BZLQ001_hutao_03.wem",
+      "category": "对话",
+      "duration_ms": 4495
+    },
+    {
+      "text": "唔？没想到你们还认识钟离呀，那我解释起来也省事多了。",
+      "source_file": "vo_HTLQ001_3_hutao_04.wem",
+      "category": "剧情",
+      "duration_ms": 5445
+    },
+    {
+      "text": "别着急嘛，你看，你们冒险家协会里面有深刻同意我的说法的人在！",
+      "source_file": "vo_HTLQ001_4_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 5283
+    },
+    {
+      "text": "是吗？只要能达成目标，做什么和怎么做都是细节问题吧。",
+      "source_file": "vo_HTLQ004_5_hutao_02b.wem",
+      "category": "剧情",
+      "duration_ms": 4682
+    },
+    {
+      "text": "哎呀呀，这大半夜的，谁在惦记本堂主？",
+      "source_file": "vo_EQHDJ501_15_hutao_02.wem",
+      "category": "剧情",
+      "duration_ms": 5110
+    },
+    {
+      "text": "老孟，让你写的广告词写完了吗？",
+      "source_file": "vo_HTLQ001_5_hutao_02.wem",
+      "category": "剧情",
+      "duration_ms": 2207
+    },
+    {
+      "text": "哎呀哎呀，贴心温柔，莫过于你啦！",
+      "source_file": "vo_hutao_mimitomo_friendship2_02.wem",
+      "category": "好感度",
+      "duration_ms": 3528
+    },
+    {
+      "text": "呼，差不多也到时候了，我们走吧！带他们去「起始与安息之地」！",
+      "source_file": "vo_HTLQ004_5_hutao_12.wem",
+      "category": "剧情",
+      "duration_ms": 5140
+    },
+    {
+      "text": "哦？是吗？速速附耳过来，本堂主要告诉你一个秘密。",
+      "source_file": "vo_hutao_mimitomo_friendship1_03a_1.wem",
+      "category": "好感度",
+      "duration_ms": 5505
+    },
+    {
+      "text": "但听爷爷说，他们当年遇到的药师，浑身缠着不妙的疠气！",
+      "source_file": "vo_BZLQ001_6_hutao_13.wem",
+      "category": "剧情",
+      "duration_ms": 4445
+    },
+    {
+      "text": "只要胆子大，晚上跟本堂主去山里闲逛，包你开眼。",
+      "source_file": "vo_hutao_mimitomo_friendship2_02a_2.wem",
+      "category": "好感度",
+      "duration_ms": 4818
+    },
+    {
+      "text": "哦哟，真是意外的结局。",
+      "source_file": "vo_card_hutao_endOfGame_fail_01.wem",
+      "category": "卡牌",
+      "duration_ms": 2470
+    },
+    {
+      "text": "唔~再说，你对我这么好，我可喜欢这儿了。",
+      "source_file": "vo_hutao_mimitomo_friendship1_02.wem",
+      "category": "好感度",
+      "duration_ms": 4326
+    },
+    {
+      "text": "哼哼，切勿质疑我的业务能力！",
+      "source_file": "vo_HTLQ003_1_hutao_03.wem",
+      "category": "剧情",
+      "duration_ms": 3216
+    },
+    {
+      "text": "谢谢你们，还是你们最理解我的想法！",
+      "source_file": "vo_HTLQ001_14_hutao_06.wem",
+      "category": "剧情",
+      "duration_ms": 2619
+    },
+    {
+      "text": "咦？白马仙人不是八奇里的金目乘黄月驹吗？",
+      "source_file": "vo_EQHDJ501_4_hutao_06.wem",
+      "category": "剧情",
+      "duration_ms": 4548
+    },
+    {
+      "text": "本堂主出牌三下两下，转眼之间又赢啦~",
+      "source_file": "vo_card_hutao_invite_hard_02.wem",
+      "category": "卡牌",
+      "duration_ms": 4629
+    },
+    {
+      "text": "我呀，就是喜欢跟你一起玩。你要是不陪我，就是不拿我当朋友哦。",
+      "source_file": "vo_hutao_mimitomo_friendship3_07.wem",
+      "category": "好感度",
+      "duration_ms": 5968
+    },
+    {
+      "text": "你好，有没有兴趣了解一下往生堂的业务呢？",
+      "source_file": "vo_HTLQ001_13_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 2952
+    },
+    {
+      "text": "哦——！回来啦？比我想的还快！",
+      "source_file": "vo_HTLQ004_1_hutao_01.wem",
+      "category": "剧情",
+      "duration_ms": 2693
+    },
+    {
+      "text": "这里能发展新客户吗？唔…",
+      "source_file": "vo_card_hutao_freetalk_01.wem",
+      "category": "卡牌",
+      "duration_ms": 5105
+    },
+    {
+      "text": "只要我不忙，随时欢迎你来哦。",
+      "source_file": "vo_hutao_mimitomo_friendship1_03b_2.wem",
+      "category": "好感度",
+      "duration_ms": 2626
+    },
+    {
+      "text": "…放心吧，本堂主还没有那么不讲道理。",
+      "source_file": "vo_BZLQ001_7_hutao_03.wem",
+      "category": "剧情",
+      "duration_ms": 3114
+    },
+    {
+      "text": "欸，你也这么说？还以为到这儿来的冒险家，不会有什么避讳呢。",
+      "source_file": "vo_HTLQ001_3_hutao_20.wem",
+      "category": "剧情",
+      "duration_ms": 5492
+    },
+    {
+      "text": "没有啦没有啦，「业务拓展」在和冒险家协会谈完之后就结束了。",
+      "source_file": "vo_HTLQ001_14_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 4497
+    },
+    {
+      "text": "往生堂非常欢迎预定服务，我们是你后顾无忧的最佳选择。",
+      "source_file": "vo_HTLQ001_3_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 4680
+    },
+    {
+      "text": "先带他回往生堂再说。接下来还有不少事要做。",
+      "source_file": "vo_HTLQ002_4_hutao_13.wem",
+      "category": "剧情",
+      "duration_ms": 3982
+    },
+    {
+      "text": "你的出牌思路很不寻常，本堂主甚是中意…",
+      "source_file": "vo_card_hutao_invite_easy_03.wem",
+      "category": "卡牌",
+      "duration_ms": 4410
+    },
+    {
+      "text": "嘿嘿，当然是坚固耐用的「另一个家」啦。",
+      "source_file": "vo_HTLQ001_5_hutao_14.wem",
+      "category": "剧情",
+      "duration_ms": 3790
+    },
+    {
+      "text": "噫…这是什么东西呀？",
+      "source_file": "vo_hutao_spice_event_dislike_01.wem",
+      "category": "料理",
+      "duration_ms": 2829
+    },
+    {
+      "text": "欸？连信仰月神的地方都没有这种事吗？",
+      "source_file": "vo_EQHDJ501_3_hutao_04.wem",
+      "category": "剧情",
+      "duration_ms": 3635
+    },
+    {
+      "text": "不过你们要去买茶，怎么买到这荒郊野岭来了？",
+      "source_file": "vo_ZBLQ001_13_hutao_13.wem",
+      "category": "剧情",
+      "duration_ms": 4605
+    },
+    {
+      "text": "锵锵！你被骗了！",
+      "source_file": "vo_HTLQ002_4_hutao_03.wem",
+      "category": "剧情",
+      "duration_ms": 2174
+    },
+    {
+      "text": "看来你们缘分不浅嘛。",
+      "source_file": "vo_ZBLQ001_13_hutao_11.wem",
+      "category": "剧情",
+      "duration_ms": 1640
+    },
+    {
+      "text": "嗯？我要这种能力干什么，我又不是医生。",
+      "source_file": "vo_HTLQ001_14_hutao_14.wem",
+      "category": "剧情",
+      "duration_ms": 3155
+    },
+    {
+      "text": "那我和客卿就先失陪咯，回头见！",
+      "source_file": "vo_ZBLQ001_13_hutao_22.wem",
+      "category": "剧情",
+      "duration_ms": 2538
+    },
+    {
+      "text": "客卿，你这位老朋友果然很不简单嘛！",
+      "source_file": "vo_ZBLQ001_13_hutao_18.wem",
+      "category": "剧情",
+      "duration_ms": 3370
+    },
+    {
+      "text": "你啊，真是个叫人开心的好朋友！",
+      "source_file": "vo_hutao_mimitomo_friendship2_02b_5.wem",
+      "category": "好感度",
+      "duration_ms": 4034
+    },
+    {
+      "text": "本堂主可不会留情，现在求饶还来得及哟。",
+      "source_file": "vo_card_hutao_invite_hard_01.wem",
+      "category": "卡牌",
+      "duration_ms": 3418
+    },
+    {
+      "text": "唔，总之先回往生堂再说吧。狼哥的事，和老孟有很深的关系。",
+      "source_file": "vo_HTLQ001_14_hutao_16.wem",
+      "category": "剧情",
+      "duration_ms": 5824
+    },
+    {
+      "text": "那干脆我们今晚去现场看看怎么样？那个地方我知道在哪！",
+      "source_file": "vo_EQHDJ501_4_hutao_10.wem",
+      "category": "剧情",
+      "duration_ms": 5266
+    },
+    {
+      "text": "哼，拒绝此等好事，吃亏的是他们。",
+      "source_file": "vo_HTLQ001_4_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 3450
+    },
+    {
+      "text": "我明白了，不过听这话的意思，难道她不是璃月人吗？",
+      "source_file": "vo_ZBLQ001_13_hutao_07.wem",
+      "category": "剧情",
+      "duration_ms": 4484
+    },
+    {
+      "text": "…你可别跟白术打小报告哦。",
+      "source_file": "vo_dialog_BZLQ002_hutao_03b_1.wem",
+      "category": "对话",
+      "duration_ms": 1564
+    },
+    {
+      "text": "唉，为什么生气了？我只是在很真诚地讲健康的重要性啊。",
+      "source_file": "vo_HTLQ001_12_hutao_05.wem",
+      "category": "剧情",
+      "duration_ms": 5278
+    },
+    {
+      "text": "你听听，香菱，本堂主的肚子已经在咕咕叫啦。",
+      "source_file": "vo_anecdote_part1_48_hutao_04.wem",
+      "category": "其他",
+      "duration_ms": 4748
+    },
+    {
+      "text": "唔？想做的事…我每天都在做自己想做的事哦。",
+      "source_file": "vo_hutao_mimitomo_friendship3_01.wem",
+      "category": "好感度",
+      "duration_ms": 4842
+    },
+    {
+      "text": "嗯~本堂主牌技不错吧。",
+      "source_file": "vo_card_hutao_inGame_hard_01.wem",
+      "category": "卡牌",
+      "duration_ms": 2489
+    },
+    {
+      "text": "哈哈…我也有我的理由啦。",
+      "source_file": "vo_HTLQ004_7_hutao_14.wem",
+      "category": "剧情",
+      "duration_ms": 2663
+    },
+    {
+      "text": "#{NICKNAME}，派蒙——我们改日再会啦！",
+      "source_file": "vo_BZLQ003_6_hutao_08.wem",
+      "category": "剧情",
+      "duration_ms": 2604
+    },
+    {
+      "text": "#那么，{NICKNAME}，你想聊些什么？",
+      "source_file": "vo_hutao_mimitomo_friendship2_03.wem",
+      "category": "好感度",
+      "duration_ms": 1830
+    },
+    {
+      "text": "相信我，用处很大，这可是往生堂代代相传的业务方式。",
+      "source_file": "vo_HTLQ001_5_hutao_03.wem",
+      "category": "剧情",
+      "duration_ms": 4604
+    },
+    {
+      "text": "又或者说，你已经察觉到了…却还想拿「它」干什么好事？",
+      "source_file": "vo_BZLQ001_4_hutao_09.wem",
+      "category": "剧情",
+      "duration_ms": 5271
+    },
+    {
+      "text": "但是往生堂依然欢迎你的光临哦。",
+      "source_file": "vo_HTLQ001_14_hutao_04.wem",
+      "category": "剧情",
+      "duration_ms": 2553
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+# 本目录仅列「本仓库自己的辅助脚本」依赖。
+# GPT-SoVITS 本体依赖请在其仓库内安装（pip install -r GPT-SoVITS/requirements.txt）。
+requests>=2.31
