@@ -41,8 +41,9 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
         {
             FileName = _python,
             UseShellExecute = false,
-            // 注意：沙箱/受控环境下子进程若走命名管道捕获输出可能受限；这里让输出直接继承终端，
-            // 只在必要时才重定向。生产部署时再按需改为重定向。
+            // 按需模式也不弹出新的控制台窗口；常态化模式由 ResidentGptSovitsTtsEngine 负责复用进程。
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
         };
         psi.ArgumentList.Add(_inferScript);
         psi.ArgumentList.Add("--ref_audio");
@@ -61,7 +62,23 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("无法启动 TTS Python 进程");
 
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // 进程可能已在取消回调与此处之间退出。
+            }
+            throw;
+        }
 
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"TTS 合成失败，退出码 {process.ExitCode}");

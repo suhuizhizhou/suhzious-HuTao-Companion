@@ -10,7 +10,7 @@
 - **人设**：提炼的胡桃人设，希望能够通过dsv4生成符合人设的台词。
 - **对话**：主动搭话；不理她会发「小别扭」
 - **记忆区**：聊天记录持久化，重开可重放、可清空；
-- **桌面桌宠**：WPF 透明置顶窗口，气泡、语音同出，语音可「▶ 重播」
+- **桌面桌宠**：WPF 透明置顶窗口，气泡、语音同出，语音可重播
 - **ReAct Agent**：Reason → Observe → Think → Act，调用工具感知环境（活动窗口、空闲状态、时间）
 
 ## 技术栈
@@ -50,7 +50,8 @@ hutao-companion/
 │   ├── persona/             # 胡桃人设 Skill 
 │   └── voice/               # 语音数据（.gitignore，需自行提取，见下）
 ├── voice/
-│   ├── infer/few_shot_infer.py   # GPT-SoVITS few-shot 推理脚本
+│   ├── infer/few_shot_infer.py   # GPT-SoVITS 按需推理脚本
+│   ├── infer/resident_server.py  # GPT-SoVITS 常驻 HTTP 服务
 │   ├── requirements.txt
 │   └── GPT-SoVITS-main/          # 第三方项目（.gitignore，需自行 clone）
 ├── agent/                   # C# Agent + WPF 桌宠
@@ -95,6 +96,11 @@ GPT-SoVITS 依赖与 v3 预训练模型下载，详见 [`docs/voice-pipeline.md`
 DEEPSEEK_API_KEY=sk-你的key
 # 可选：覆盖 TTS 的 python 路径
 # HU_TAO_TTS_PYTHON=voice/.venv/Scripts/python.exe
+# TTS 默认使用常驻服务，模型只加载一次；可改为 on-demand 逐句启动进程
+# HU_TAO_TTS_MODE=resident
+# HU_TAO_TTS_URL=http://127.0.0.1:9881/
+# HU_TAO_TTS_DEVICE=cuda
+# HU_TAO_TTS_HALF=true
 ```
 
 ### 4. 构建并运行桌宠

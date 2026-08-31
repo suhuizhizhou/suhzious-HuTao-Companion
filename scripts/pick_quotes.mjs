@@ -19,8 +19,10 @@ function category(f) {
   return '其他';
 }
 
-// 标志性内容：语气词 / 口头禅 / 招牌词
-const marker = /[！？!?～~呀啦咯嘛喽哦喔欸嘿哼哈]|本堂主|客卿|生死|往生堂|丘丘|客户|生意|优惠/;
+// 标志性内容：语气词 / 口头禅 / 招牌词（可用第 4 个参数传入自定义正则）
+const marker = process.argv[4]
+  ? new RegExp(process.argv[4])
+  : /[！？!?～~呀啦咯嘛喽哦喔欸嘿哼哈]|本堂主|客卿|生死|往生堂|丘丘|客户|生意|优惠/;
 
 const quotes = lines
   .filter((x) => x.text && x.text.length >= 3 && x.text.length <= 30)

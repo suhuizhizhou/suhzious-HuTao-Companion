@@ -55,6 +55,33 @@ Set-Location GPT-SoVITS
 
 使用 `voice/infer/client.py`（封装了下面的请求）。
 
+### 桌宠常驻模式（推荐）
+
+桌宠默认使用 `voice/infer/resident_server.py`。它启动一次后加载 GPT、SoVITS、BERT、CNHuBERT 和 vocoder，随后每个聊天气泡只发送一次 HTTP 请求，不会重复创建 Python 进程或加载权重。
+
+桌宠启动时会在后台自动拉起服务并轮询 `/health`；同一角色的参考音频特征也会在第一次请求后缓存。GPU 推理由服务端串行处理，连续多个气泡可以依次生成，不会并发修改同一个模型实例。
+
+如需手动启动服务：
+
+```powershell
+cd voice\GPT-SoVITS-main
+..\.venv\Scripts\python ..\infer\resident_server.py `
+  --port 9881 `
+  --gpt-model GPT_SoVITS\pretrained_models\s1v3.ckpt `
+  --sovits-model GPT_SoVITS\pretrained_models\s2Gv3.pth `
+  --device cuda --half
+```
+
+在 `.env` 中可切换模式：
+
+```ini
+HU_TAO_TTS_MODE=resident       # 默认；模型常驻
+HU_TAO_TTS_URL=http://127.0.0.1:9881/
+# HU_TAO_TTS_MODE=on-demand     # 每句启动一次进程，显存紧张时使用
+```
+
+常驻进程只绑定本机回环地址。关闭桌宠时，若服务由桌宠自动启动，会一并结束；手动启动的外部服务不会被桌宠关闭。
+
 **核心请求字段**（基于 v2 稳定接口，v3 以 `/docs` 为准）：
 
 | 字段 | 含义 | 示例 |

@@ -24,6 +24,19 @@ public sealed class MockLlmProvider : ILLMProvider
     {
         var userMsg = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
+        if (_persona.Name == "芙宁娜")
+        {
+            var furinaReply = userMsg switch
+            {
+                _ when userMsg.Contains("是谁") || userMsg.Contains("你好") || userMsg.Contains("自我介绍")
+                    => "欢迎来到本水神的剧场！我是芙宁娜，今天的主角自然也是我。",
+                _ when userMsg.Contains("难过") || userMsg.Contains("累")
+                    => "先坐到观众席休息一下吧。主演偶尔也会允许重要的观众喘口气。",
+                _ => Pick(_persona.Catchphrases.SignatureQuotes) + Pick(_persona.Catchphrases.Particles),
+            };
+            return Task.FromResult(furinaReply);
+        }
+
         // 简单规则：识别几个关键词，其余走通用搭话
         var reply = userMsg switch
         {

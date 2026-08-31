@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace HuTao.Agent.Core.Persona;
 
@@ -22,6 +23,7 @@ public static class PersonaLoader
         var catchphrasesPath = Path.Combine(root, "catchphrases.json");
         var lorePath = Path.Combine(root, "lore.md");
         var quotesPath = Path.Combine(root, "quotes.json");
+        var personaCardPath = Path.Combine(root, "persona.yaml");
         if (!File.Exists(systemPromptPath))
             throw new FileNotFoundException($"缺少 system-prompt.md: {systemPromptPath}");
 
@@ -34,6 +36,14 @@ public static class PersonaLoader
         }
 
         var lore = File.Exists(lorePath) ? File.ReadAllText(lorePath) : "";
+        var name = Path.GetFileName(root);
+        if (File.Exists(personaCardPath))
+        {
+            var match = Regex.Match(
+                File.ReadAllText(personaCardPath), @"(?m)^\s*name:\s*(?<name>.+?)\s*$");
+            if (match.Success)
+                name = match.Groups["name"].Value.Trim().Trim('"', '\'');
+        }
         var quotes = new List<SignatureVoice>();
         if (File.Exists(quotesPath))
         {
@@ -44,7 +54,7 @@ public static class PersonaLoader
         return new PersonaProfile
         {
             Root = root,
-            Name = "胡桃",
+            Name = name,
             SystemPrompt = systemPrompt,
             Catchphrases = catchphrases,
             Lore = lore,

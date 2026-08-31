@@ -15,7 +15,12 @@ var repoRoot = FindRepoRoot() ?? AppContext.BaseDirectory;
 var persona = PersonaLoader.Load(personaRoot);
 Console.WriteLine($"[persona] 已加载人设: {persona.Name}");
 
-IEnumerable<IAgentTool> tools = [new TimeTool(), new ActiveWindowTool(), new IdleTool()];
+IEnumerable<IAgentTool> tools =
+[
+    new TimeTool(),
+    new ActiveWindowTool(() => ReadBooleanEnvironment("HU_TAO_ALLOW_APP_AWARENESS")),
+    new IdleTool(),
+];
 var llm = BuildLlm(persona);
 
 // TTS 引擎：预留切换。传入 python 路径则接 GPT-SoVITS，否则只出文字（方便先跑通流程）。
@@ -147,6 +152,15 @@ static void LoadEnvFile()
         Console.WriteLine($"[env] 已加载 {Path.GetFullPath(candidate)}");
         return;
     }
+}
+
+static bool ReadBooleanEnvironment(string name)
+{
+    var value = Environment.GetEnvironmentVariable(name)?.Trim();
+    return value is not null &&
+           (value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("yes", StringComparison.OrdinalIgnoreCase));
 }
 
 static ITtsEngine? BuildTts(string[] args)
