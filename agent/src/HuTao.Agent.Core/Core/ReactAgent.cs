@@ -1,6 +1,7 @@
 using System.Text;
 using HuTao.Agent.Core.Abstractions;
 using HuTao.Agent.Core.Persona;
+using HuTao.Agent.Core.Storage;
 
 namespace HuTao.Agent.Core.Core;
 
@@ -18,6 +19,7 @@ public sealed class ReactAgent
     private readonly IReadOnlyDictionary<string, IAgentTool> _tools;
     private readonly string? _refAudio;
     private readonly string? _refText;
+    private readonly ImportantMemoryStore? _importantMemory;
     private readonly List<ChatMessage> _history = [];
 
     public ReactAgent(
@@ -26,7 +28,8 @@ public sealed class ReactAgent
         ITtsEngine? tts,
         IEnumerable<IAgentTool> tools,
         string? refAudio = null,
-        string? refText = null)
+        string? refText = null,
+        ImportantMemoryStore? importantMemory = null)
     {
         _persona = persona;
         _llm = llm;
@@ -34,6 +37,7 @@ public sealed class ReactAgent
         _tools = tools.ToDictionary(t => t.Name);
         _refAudio = refAudio;
         _refText = refText;
+        _importantMemory = importantMemory;
     }
 
     /// <summary>完整回应（含语音合成），用户主动发消息时调用。</summary>
@@ -120,6 +124,8 @@ public sealed class ReactAgent
             obsBuilder.AppendLine($"- {name}: {result}");
         }
         var observation = obsBuilder.ToString().TrimEnd();
+        var memoryPart = _importantMemory?.PreparePrompt(
+            userInput, isProactive, DateTimeOffset.Now) ?? "";
 
         // ── 3. Think：LLM 生成胡桃视角的台词 ──
         if (userInput is not null)
@@ -130,9 +136,11 @@ public sealed class ReactAgent
             : "\n\n【你的生平（官方设定，涉及身世/往生堂/生死观时务必以此为准，不得杜撰）】\n" + _persona.Lore;
 
         var systemWithObs = _persona.SystemPrompt + lorePart + "\n\n" +
-            "【回复格式】请把回复拆成 1~3 段短句，每段单独一行、不超过 30 字，像聊天气泡一样简短自然，不要输出一大段长文字。\n\n" +
+            "【回复格式】请把回复拆成 1~3 段短句，每段单独一行、不超过 30 字，像聊天气泡一样简短自然，不要输出一大段长文字。" +
+            "说出口的台词直接写正文；纯动作或神态必须单独一行，并用全角括号写成（动作）。不要把台词放进动作括号，也不要在同一行混写动作与台词；动作气泡不会合成语音。\n\n" +
             $"【当前环境感知】\n{observation}\n\n" +
-            "（以上是你能感知到的、电脑前那位用户的实时状态，聊天时可自然提及，但别像念数据一样生硬。）";
+            "环境信息只用于非常粗略地判断是否适合打扰。进程名不代表具体工作内容，不得猜测窗口标题、文档、网页、输入内容或其他隐私。\n\n" +
+            memoryPart;
 
         var reply = await _llm.CompleteAsync(systemWithObs, _history, ct).ConfigureAwait(false);
         _history.Add(new ChatMessage("assistant", reply));

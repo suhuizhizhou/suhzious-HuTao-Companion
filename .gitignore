@@ -22,12 +22,16 @@ voice/GPT-SoVITS-main/
 data/voice/raw/
 data/voice/wem_tmp/
 data/voice/hutao/
+data/voice/furina/
+data/voice/*_manual/
+data/voice/manual_extract/
 data/voice/dataset/
 voice/checkpoints/
 voice/outputs/
 
 # ── 运行时用户数据 ──
-data/chat_log.json
+data/chat_log*.json
+data/important_memories*.json
 .env
 
 # ── 下载的参考数据（体积大）──

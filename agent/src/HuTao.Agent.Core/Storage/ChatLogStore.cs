@@ -10,7 +10,7 @@ public sealed record ChatEntry(string Time, string Role, string Text, string? Au
 ///   - 保存/加载完整聊天记录（重开可重放）
 ///   - 语音保存区大小上限（超限删除最旧音频）
 ///   - 手动清空
-/// 同时作为 Agent 的"记忆区"：历史对话持久化，重开仍记得之前聊过什么。
+/// 同时作为 Agent 的短期对话上下文；用户明确托付的重要事项由 ImportantMemoryStore 独立保存。
 /// </summary>
 public sealed class ChatLogStore
 {

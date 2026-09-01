@@ -1,3 +1,6 @@
 # 本目录仅列「本仓库自己的辅助脚本」依赖。
 # GPT-SoVITS 本体依赖请在其仓库内安装（pip install -r GPT-SoVITS/requirements.txt）。
 requests>=2.31
+# 常驻 TTS 服务：FastAPI/uvicorn 提供本地 HTTP 推理接口，soundfile 用于 WAV 编码。
+fastapi[standard]>=0.115.2
+soundfile>=0.12

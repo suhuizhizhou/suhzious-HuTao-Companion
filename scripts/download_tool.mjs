@@ -8,7 +8,7 @@ if (!url || !outPath) {
 }
 
 async function fetchOnce() {
-  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120000) });
+  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(600000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
