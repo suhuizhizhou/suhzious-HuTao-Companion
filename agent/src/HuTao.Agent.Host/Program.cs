@@ -2,6 +2,7 @@ using HuTao.Agent.Core.Abstractions;
 using HuTao.Agent.Core.Core;
 using HuTao.Agent.Core.Llm;
 using HuTao.Agent.Core.Persona;
+using HuTao.Agent.Core.Rag;
 using HuTao.Agent.Core.Tools;
 using HuTao.Agent.Core.Tts;
 
@@ -15,12 +16,15 @@ var repoRoot = FindRepoRoot() ?? AppContext.BaseDirectory;
 var persona = PersonaLoader.Load(personaRoot);
 Console.WriteLine($"[persona] 已加载人设: {persona.Name}");
 
-IEnumerable<IAgentTool> tools =
-[
+var tools = new List<IAgentTool>
+{
     new TimeTool(),
     new ActiveWindowTool(() => ReadBooleanEnvironment("HU_TAO_ALLOW_APP_AWARENESS")),
     new IdleTool(),
-];
+};
+tools.Add(new StoryKnowledgeTool(
+    StoryVectorStore.Load(Path.Combine(repoRoot, "data", "story", "index.json")),
+    new StoryDialogueStore(Path.Combine(repoRoot, "data", "story", "dialogue"))));
 var llm = BuildLlm(persona);
 
 // TTS 引擎：预留切换。传入 python 路径则接 GPT-SoVITS，否则只出文字（方便先跑通流程）。

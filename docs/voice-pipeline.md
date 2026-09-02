@@ -61,6 +61,26 @@ Set-Location GPT-SoVITS
 
 桌宠启动时会在后台自动拉起服务并轮询 `/health`；同一角色的参考音频特征也会在第一次请求后缓存。GPU 推理由服务端串行处理，连续多个气泡可以依次生成，不会并发修改同一个模型实例。
 
+### 多情绪参考音频
+
+桌宠会让 Agent 为每段台词生成隐藏的情绪类型和强度，再从角色的 `emotion-references.json` 选择对应参考音频。当前支持：
+
+- `neutral`：日常自然；
+- `cheerful`：开心、兴奋；
+- `teasing`：俏皮、傲娇；
+- `concerned`：关心、安慰；
+- `angry`：生气、不满；
+- `sleepy`：疲惫、轻声。
+
+情绪标签会在气泡显示和聊天记录保存前移除。模型没有返回合法标签时，会根据语气词和标点做保守判断；情绪参考文件缺失时回退到角色默认参考音频。每个角色的每种情绪配置 4 条参考音频，优先使用角色早期实装、早期主线和早期传说任务中的配音；系统会在同类参考中随机选择，并排除上一条刚使用的音频。清单同时保存参考音频的准确原文，以及该情绪的 `speed_factor`、`temperature` 预设。
+
+参考清单位置：
+
+```text
+data/persona/hutao/emotion-references.json
+data/persona/furina/emotion-references.json
+```
+
 如需手动启动服务：
 
 ```powershell

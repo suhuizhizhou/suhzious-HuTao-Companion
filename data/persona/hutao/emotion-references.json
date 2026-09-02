@@ -1,0 +1,136 @@
+{
+  "emotions": {
+    "neutral": {
+      "speed_factor": 1.0,
+      "temperature": 0.6,
+      "references": [
+        {
+          "audio": "../../voice/hutao/wav/a4eedbf833d51d47.wav",
+          "text": "哼哼，切勿质疑我的业务能力！"
+        },
+        {
+          "audio": "../../voice/hutao/wav/0911875b3b120ff9.wav",
+          "text": "我是胡桃，往生堂的当代堂主，具体掌管的…嗯，就是些生离死别的小事。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/00d3ae0ba7689f84.wav",
+          "text": "好了，我们也该重新出发了，我可不想错过新生意。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/1b67ce23cdf033b7.wav",
+          "text": "这个嘛，你们听说过「夜叉」的历史吗？"
+        }
+      ]
+    },
+    "cheerful": {
+      "speed_factor": 1.07,
+      "temperature": 0.72,
+      "references": [
+        {
+          "audio": "../../voice/hutao/wav/05629a1d54cc13a6.wav",
+          "text": "嘿嘿，我很满意，比原来冰冰凉凉的宣传词好多了！一定能打动人心！"
+        },
+        {
+          "audio": "../../voice/hutao/wav/15ed6847fe232787.wav",
+          "text": "哈哈哈，哪有你说得这么恶劣，我只是想让他们快点理解「这都只是玩笑」嘛。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/4199ac78f23d82be.wav",
+          "text": "哦哦，对哦，忘记说了，哈哈，但是无所谓吧。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/7dda0f32efe522a2.wav",
+          "text": "突然来找我，怎么怎么？想我了吗？"
+        }
+      ]
+    },
+    "teasing": {
+      "speed_factor": 1.04,
+      "temperature": 0.7,
+      "references": [
+        {
+          "audio": "../../voice/hutao/wav/652b11e3f46ffb40.wav",
+          "text": "本堂主略施小计，你就败下阵来了，嘿嘿嘿。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/23249ac3dc521a1b.wav",
+          "text": "心不心动？要不要来？嘻嘻，那就说定咯。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/28559f8bc4bea103.wav",
+          "text": "对吧？就知道你是个有眼光的人，懂得欣赏本堂主的诗歌。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/58ecb02d835b565a.wav",
+          "text": "我们关系这么好，你肯定不会介意的吧？"
+        }
+      ]
+    },
+    "concerned": {
+      "speed_factor": 0.93,
+      "temperature": 0.52,
+      "references": [
+        {
+          "audio": "../../voice/hutao/wav/98f0bceca4d816d0.wav",
+          "text": "早点休息吧，不用害怕做噩梦啊鬼压床什么的。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/2967f046c5b42072.wav",
+          "text": "不过，有我胡桃陪着你，就不必担心啦。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/3c1ab9f019e8415b.wav",
+          "text": "身体不舒服可是要紧事，很可能是严重病症的预兆。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/6cadfa60b3768520.wav",
+          "text": "没想到你这么认真，没关系啦，只要跟着我，慢慢都会理解的。"
+        }
+      ]
+    },
+    "angry": {
+      "speed_factor": 1.03,
+      "temperature": 0.66,
+      "references": [
+        {
+          "audio": "../../voice/hutao/wav/d943883579543454.wav",
+          "text": "哼，拒绝此等好事，吃亏的是他们。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/00fa8aef5356a91c.wav",
+          "text": "但对待老顾客，却没有拿出同等的诚意。嗯，不行，不行。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/2c97763360876357.wav",
+          "text": "唉，停一下停一下，你们两个，都就此打住，别再自说自话了。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/69967c38797de9c9.wav",
+          "text": "我认为现在的说法，缺乏热情与诚意。"
+        }
+      ]
+    },
+    "sleepy": {
+      "speed_factor": 0.88,
+      "temperature": 0.48,
+      "references": [
+        {
+          "audio": "../../voice/hutao/wav/cf57a72eb3b746ab.wav",
+          "text": "要是不急着出发，那就在这里多休息一会儿。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/25e2194768dcde34.wav",
+          "text": "俗话说得好，猫咪睡觉老鼠闹，醒来一样全吃掉。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/6738ddf487d92835.wav",
+          "text": "所以，今天就不干那些有的没的了，让我在你家呆着吧。"
+        },
+        {
+          "audio": "../../voice/hutao/wav/b6302cc5b0f63689.wav",
+          "text": "嘿嘿，对了，你们出来跑了这么久，回程的话，最好在望舒客栈休息一晚哦，这样不会太疲累。"
+        }
+      ]
+    }
+  }
+}
