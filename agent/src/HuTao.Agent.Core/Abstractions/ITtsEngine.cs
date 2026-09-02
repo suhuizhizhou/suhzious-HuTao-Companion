@@ -19,7 +19,9 @@ public sealed record TtsRequest(
     string Text,
     string? RefAudioPath = null,
     string? RefText = null,
-    string Language = "中文");
+    string Language = "中文",
+    double SpeedFactor = 1.0,
+    double Temperature = 0.6);
 
 /// <summary>合成结果。</summary>
 public sealed record TtsResult(

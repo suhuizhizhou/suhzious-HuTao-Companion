@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--top_k", type=int, default=20)
     ap.add_argument("--top_p", type=float, default=0.6)
     ap.add_argument("--temperature", type=float, default=0.6)
+    ap.add_argument("--speed_factor", type=float, default=1.0)
     args = ap.parse_args()
 
     print(f"[load] gpt={args.gpt_model} sovits={args.sovits_model}")
@@ -59,6 +60,7 @@ def main():
         top_k=args.top_k,
         top_p=args.top_p,
         temperature=args.temperature,
+        speed=args.speed_factor,
     )
     result_list = list(result)
     if not result_list:

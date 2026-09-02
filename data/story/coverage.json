@@ -1,0 +1,74 @@
+{
+  "status": "generated_from_official_quest_text",
+  "generated_at": "2026-09-01T08:41:11.801866+00:00",
+  "chapter_count": 2425,
+  "source": {
+    "repository": "https://github.com/DimbreathBot/AnimeGameData",
+    "revision": "26df1dfbdf05a82bbb1d97506859f3e1c40718d8",
+    "files": [
+      "ExcelBinOutput/MainQuestExcelConfigData.json",
+      "ExcelBinOutput/QuestExcelConfigData.json",
+      "ExcelBinOutput/ChapterExcelConfigData.json",
+      "TextMap/TextMapCHS.json"
+    ],
+    "credit": "Data dump maintained by Dimbreath; source README requests attribution.",
+    "historical_text_map": {
+      "repository": "https://github.com/Sycamore0/GenshinData",
+      "revision": "7ad6457973f718484ef8b36569b5f76fab628084",
+      "purpose": "补回当前版本已移除的早期任务标题与简介，仅在当前 TextMap 缺失时使用。"
+    }
+  },
+  "scope_counts": {
+    "魔神任务": 223,
+    "世界任务": 1382,
+    "传说任务": 379,
+    "其他剧情任务": 250,
+    "活动剧情": 191
+  },
+  "region_counts": {
+    "提瓦特": 1279,
+    "蒙德": 234,
+    "璃月": 217,
+    "稻妻": 157,
+    "须弥": 190,
+    "挪德卡莱": 72,
+    "枫丹": 144,
+    "纳塔": 107,
+    "至冬": 24,
+    "坎瑞亚": 1
+  },
+  "skipped": {
+    "missing_title_or_summary": 754,
+    "test_or_placeholder": 1193
+  },
+  "method": "每个 MainQuest 生成一条章节记录，摘要取官方任务简介，关键事件取前十条去重后的官方步骤描述；过滤缺少标题/简介以及测试、废弃、占位任务。地区由文本关键词推断，可能为‘提瓦特’。",
+  "limitations": [
+    "这是任务级剧情档案，不等同于逐句对话全文。",
+    "地区为规则推断字段，回答事实应以标题、简介和关键事件为准。",
+    "版本更新后应重新导入并构建索引。"
+  ],
+  "dialogue_corpus": {
+    "chapter_count": 1460,
+    "summary_chapter_count": 2425,
+    "chapter_coverage_ratio": 0.6021,
+    "line_count": 179489,
+    "resolved_line_count": 165284,
+    "missing_text_line_count": 14205,
+    "parse_error_count": 0,
+    "source_kind_counts": {
+      "codex_quest": 489,
+      "talk_quest_fallback": 971
+    },
+    "guarantee": "raw_text、text_hash、line_id、说话人、顺序与分支均保留；无法从当前及历史 TextMap 解析的行仍保留哈希与结构，不伪造文本。"
+  },
+  "supplemental_page_corpus": {
+    "page_count": 1053,
+    "mapped_page_count": 371,
+    "mapped_chapter_link_count": 673,
+    "line_count": 211696,
+    "dialogue_line_count": 177666,
+    "source_repository": "https://github.com/hbprotoss/genshin-story-data",
+    "source_revision": "1f4b757d66ef5a72476b2c260f2c5ac0856bf3d9",
+    "guarantee": "完整 raw_text 与逐行顺序同时保留；仅作为补充档案，不覆盖 TextMap 台词，不伪造游戏 line_id。"
+  }
+}

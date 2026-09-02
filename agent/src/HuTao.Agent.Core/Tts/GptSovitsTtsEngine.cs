@@ -58,6 +58,12 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
         psi.ArgumentList.Add(_gptModel);
         psi.ArgumentList.Add("--sovits_model");
         psi.ArgumentList.Add(_sovitsModel);
+        psi.ArgumentList.Add("--temperature");
+        psi.ArgumentList.Add(Math.Clamp(request.Temperature, 0.4, 0.9).ToString(
+            System.Globalization.CultureInfo.InvariantCulture));
+        psi.ArgumentList.Add("--speed_factor");
+        psi.ArgumentList.Add(Math.Clamp(request.SpeedFactor, 0.8, 1.15).ToString(
+            System.Globalization.CultureInfo.InvariantCulture));
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("无法启动 TTS Python 进程");

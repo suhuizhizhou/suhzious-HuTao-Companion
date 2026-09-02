@@ -37,6 +37,7 @@ data/important_memories*.json
 # ── 下载的参考数据（体积大）──
 data/persona/AvatarExcelConfigData.json
 data/persona/TextMapCHS.json
+.tmp/
 
 # ── 下载的工具与中间产物 ──
 tools/

@@ -8,6 +8,7 @@ using HuTao.Agent.Core.Abstractions;
 using HuTao.Agent.Core.Core;
 using HuTao.Agent.Core.Llm;
 using HuTao.Agent.Core.Persona;
+using HuTao.Agent.Core.Rag;
 using HuTao.Agent.Core.Storage;
 using HuTao.Agent.Core.Tools;
 using HuTao.Agent.Core.Tts;
@@ -23,7 +24,7 @@ internal sealed record CharacterTheme(
 internal sealed record CharacterConfig(
     string Id, string Name, string Title, string Emoji,
     string PersonaDir, string RefAudio, string RefText,
-    string Greeting, string BusyText, CharacterTheme Theme);
+    string EmotionCatalog, string Greeting, string BusyText, CharacterTheme Theme);
 
 public partial class MainWindow : Window
 {
@@ -48,6 +49,7 @@ public partial class MainWindow : Window
             "data/persona/hutao",
             "data/voice/hutao/wav/a4eedbf833d51d47.wav",
             "哼哼，切勿质疑我的业务能力！",
+            "data/persona/hutao/emotion-references.json",
             "本堂主来啦！有什么想聊的，尽管说~",
             "胡桃正在忙，可能还没有看到消息哦~",
             new CharacterTheme(
@@ -60,6 +62,7 @@ public partial class MainWindow : Window
             "data/persona/furina",
             "data/voice/furina/wav/4e4c5b22eb6c9354.wav",
             "不要把舞台演出和剧团里的关系混为一谈行吗？",
+            "data/persona/furina/emotion-references.json",
             "欢迎来到本水神的剧场，好戏开场~",
             "芙宁娜正在准备下一幕，请稍候片刻~",
             new CharacterTheme(
@@ -112,12 +115,21 @@ public partial class MainWindow : Window
             ApplyTheme(ch);
             var persona = PersonaLoader.Load(Path.Combine(_repoRoot!, ch.PersonaDir));
 
-            IAgentTool[] tools =
-            [
+            var tools = new List<IAgentTool>
+            {
                 new TimeTool(),
                 new ActiveWindowTool(() => _allowAppAwareness),
                 new IdleTool(),
-            ];
+            };
+            // 剧情档案是胡桃的第四面墙能力，其他角色不共享该工具。
+            if (ch.Id == "hutao")
+            {
+                var storyIndex = Path.Combine(_repoRoot!, "data", "story", "index.json");
+                var dialogueRoot = Path.Combine(_repoRoot!, "data", "story", "dialogue");
+                tools.Add(new StoryKnowledgeTool(
+                    StoryVectorStore.Load(storyIndex),
+                    new StoryDialogueStore(dialogueRoot)));
+            }
             var llm = BuildLlm(persona);
             // 角色切换只替换人设和参考音频，复用同一个 TTS 引擎/常驻 Python 进程。
             _tts ??= BuildTts();
@@ -126,11 +138,15 @@ public partial class MainWindow : Window
                 ? new ImportantMemoryStore(Path.Combine(
                     _repoRoot!, "data", "important_memories_hutao.json"))
                 : null;
+            var emotionReferences = EmotionReferenceCatalog.Load(
+                Path.Combine(_repoRoot!, ch.EmotionCatalog),
+                Path.Combine(_repoRoot!, ch.RefAudio), ch.RefText);
             _agent = new ReactAgent(
                 persona, llm, _tts, tools,
                 refAudio: Path.Combine(_repoRoot!, ch.RefAudio),
                 refText: ch.RefText,
-                importantMemory: importantMemory);
+                importantMemory: importantMemory,
+                emotionReferences: emotionReferences);
 
             Title = $"{ch.Name}桌宠";
             TitleText.Text = $"{ch.Emoji} {ch.Name} · {ch.Title}";
@@ -180,7 +196,8 @@ public partial class MainWindow : Window
         var thinking = AddThinkingBubble();
         try
         {
-            var audio = await _agent.SynthesizeAsync(character.Greeting, ct);
+            var audio = await _agent.SynthesizeAsync(
+                character.Greeting, "cheerful", 0.7, ct);
             if (BubblePanel.Children.Contains(thinking))
                 BubblePanel.Children.Remove(thinking);
             AddBubble(character.Greeting, isUser: false, audio?.AudioPath, record: false);
@@ -212,15 +229,19 @@ public partial class MainWindow : Window
 
         try
         {
-            var segments = await _agent.GenerateSegmentsAsync(userInput, proactive, ct);
+            var segments = await _agent.GenerateSpeechSegmentsAsync(userInput, proactive, ct);
             if (segments.Count == 0)
-                segments = new[] { "……" };
+                segments = [new SpeechSegment("……", "neutral", 0.3)];
 
-            foreach (var seg in segments)
+            foreach (var segment in segments)
             {
                 ct.ThrowIfCancellationRequested();
+                var seg = segment.Text;
                 var isAction = IsActionSegment(seg);
-                var audio = isAction ? null : await _agent.SynthesizeAsync(seg, ct);
+                var audio = isAction
+                    ? null
+                    : await _agent.SynthesizeAsync(
+                        seg, segment.Emotion, segment.Intensity, ct);
 
                 await Dispatcher.InvokeAsync(() =>
                 {
@@ -408,7 +429,9 @@ public partial class MainWindow : Window
         try
         {
             var isAction = IsActionSegment(text);
-            var audio = isAction ? null : await _agent.SynthesizeAsync(text, ct);
+            var audio = isAction
+                ? null
+                : await _agent.SynthesizeAsync(text, "concerned", 0.65, ct);
             await Dispatcher.InvokeAsync(() =>
             {
                 AddBubble(text, isUser: false, audio?.AudioPath);
