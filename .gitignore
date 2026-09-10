@@ -23,16 +23,21 @@ data/voice/raw/
 data/voice/wem_tmp/
 data/voice/hutao/
 data/voice/furina/
+data/voice/klee/
 data/voice/*_manual/
 data/voice/manual_extract/
 data/voice/dataset/
+data/voice/generated/
 voice/checkpoints/
 voice/outputs/
 
 # ── 运行时用户数据 ──
 data/chat_log*.json
 data/important_memories*.json
+data/reading/
 .env
+.env.*
+!.env.example
 
 # ── 下载的参考数据（体积大）──
 data/persona/AvatarExcelConfigData.json
@@ -40,7 +45,7 @@ data/persona/TextMapCHS.json
 .tmp/
 
 # ── 下载的工具与中间产物 ──
-tools/
+/tools/
 
 # ── 个人笔记（写给自己看的，不公开）──
 notes/
@@ -48,13 +53,37 @@ notes/
 # ── 构建产物 ──
 bin/
 obj/
+.vs/
+TestResults/
+artifacts/
 agent/.nuget/
 agent/.dotnet-home/
 frontend/dist/
 frontend/node_modules/
+release/
+publish/
+*.nupkg
+*.snupkg
 *.user
 
 # ── 日志与缓存 ──
 *.log
 .DS_Store
 Thumbs.db
+
+# ── Story RAG 产物 ──
+# 保留 benchmark、来源记录、人工汇总
+data/story/semantic/
+evaluation/story-rag/results/**/*.json
+!evaluation/story-rag/results/semantic-smoke.json
+evaluation/story-rag/results/latest/
+evaluation/story-rag/results/live-*/
+evaluation/story-rag/results/full-react/
+evaluation/story-rag/results/full-v4-live/
+evaluation/story-rag/results/no-memory/
+evaluation/story-rag/results/no-expansion/
+evaluation/story-rag/results/v3-lexical-r2/
+evaluation/story-rag/results/v3-complex-lexical-r*/
+evaluation/story-rag/results/v4-agentic-lexical/
+evaluation/story-rag/results/v4-agentic-after-react/
+evaluation/story-rag/results/v4-react-small/

@@ -1,0 +1,10 @@
+{"id":"quote-hutao-sun","query":"我记得有一句太阳出来我晒太阳，是谁说的？","category":"partial_quote","expected_line_ids":[402221211],"expected_chapter_ids":["main-quest-40222"],"should_answer":true}
+{"id":"quote-ice-water","query":"凡人的想法就像冰层下的水，这句原文是谁说的？","category":"exact_quote","expected_line_ids":[10100204],"expected_chapter_ids":["main-quest-1010"],"should_answer":true}
+{"id":"fact-zhongli-intro","query":"公子把钟离介绍成什么身份？","category":"fact_lookup","expected_line_ids":[10100501],"expected_chapter_ids":["main-quest-1010"],"should_answer":true}
+{"id":"quote-fatui-promise","query":"愚人众执行官的承诺从不落空是谁说的？","category":"partial_quote","expected_line_ids":[10100207],"expected_chapter_ids":["main-quest-1010"],"should_answer":true}
+{"id":"fact-hidden-body","query":"谁能解决岩神仙体被七星藏匿这个难题？","category":"fact_lookup","expected_line_ids":[10100302],"expected_chapter_ids":["main-quest-1010"],"should_answer":true}
+{"id":"quote-good-guide","query":"派蒙只有在什么时候才像个好向导？","category":"paraphrase","expected_line_ids":[10100214],"expected_chapter_ids":["main-quest-1010"],"should_answer":true}
+{"id":"quote-hutao-busy","query":"胡桃说两位大忙人找她有什么事的那句台词","category":"paraphrase","expected_line_ids":[110270802],"expected_chapter_ids":["main-quest-11027"],"should_answer":true}
+{"id":"quote-hutao-name","query":"是不是有人叫了本堂主的名字？","category":"partial_quote","expected_line_ids":[400140202],"expected_chapter_ids":["main-quest-40014"],"should_answer":true}
+{"id":"negative-out-of-domain","query":"赛博朋克夜之城的荒坂公司是谁创办的？","category":"no_answer","expected_line_ids":[],"expected_chapter_ids":[],"should_answer":false}
+{"id":"negative-too-vague","query":"我记得有一句话，那句话是谁说的？","category":"too_vague","expected_line_ids":[],"expected_chapter_ids":[],"should_answer":false}

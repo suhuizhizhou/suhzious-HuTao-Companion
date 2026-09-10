@@ -4,22 +4,44 @@ using System.Text.Json.Serialization;
 namespace HuTao.Agent.Core.Rag;
 
 /// <summary>
-/// 章节全文库。第一阶段章节召回后才读取对应 JSONL，避免把十万行对话全部载入内存。
+/// 剧情逐句全文库。支持全局台词召回，也保留按章节搜索的降级入口。
 /// </summary>
 public sealed class StoryDialogueStore
 {
+    public string RootPath { get; }
     private const int VectorDimension = 4096;
     private static readonly IReadOnlyDictionary<int, double> EmptyIdf =
         new Dictionary<int, double>();
     private readonly string _chaptersRoot;
     private readonly string _pagesRoot;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _pageFilesByChapter;
+    private readonly Lazy<StoryLineIndex> _globalIndex;
 
     public StoryDialogueStore(string rootPath)
     {
+        RootPath = Path.GetFullPath(rootPath);
         _chaptersRoot = Path.Combine(rootPath, "chapters");
         _pagesRoot = Path.Combine(rootPath, "pages");
         _pageFilesByChapter = LoadPageManifest(Path.Combine(_pagesRoot, "manifest.json"));
+        _globalIndex = new Lazy<StoryLineIndex>(
+            () => StoryLineIndex.Load(_chaptersRoot),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    /// <summary>
+    /// 在全库逐句检索。用户通常不会提供章节名，而是描述记得的某句台词，
+    /// 因此这一入口不能先依赖章节摘要。检索完成后再按命中行回读同一段对话上下文。
+    /// </summary>
+    public IReadOnlyList<DialogueSearchHit> SearchGlobal(
+        string query,
+        int topK = 5,
+        int windowSize = 8,
+        double minScore = 0.16)
+    {
+        if (string.IsNullOrWhiteSpace(query) || !Directory.Exists(_chaptersRoot))
+            return [];
+
+        return _globalIndex.Value.Search(query, topK, windowSize, minScore);
     }
 
     public IReadOnlyList<DialogueSearchHit> Search(
@@ -142,7 +164,7 @@ public sealed class StoryDialogueStore
             .ToList();
     }
 
-    private static List<StoryDialogueLine> ReadLines(string path)
+    internal static List<StoryDialogueLine> ReadLines(string path)
     {
         var result = new List<StoryDialogueLine>();
         foreach (var json in File.ReadLines(path))
@@ -208,12 +230,19 @@ public sealed class StoryDialogueLine
     [JsonPropertyName("chapter_id")] public string ChapterId { get; init; } = "";
     [JsonPropertyName("main_id")] public int MainId { get; init; }
     [JsonPropertyName("main_title")] public string MainTitle { get; init; } = "";
+    [JsonPropertyName("main_description")] public string MainDescription { get; init; } = "";
+    [JsonPropertyName("chapter_title")] public string ChapterTitle { get; init; } = "";
+    [JsonPropertyName("chapter_number")] public string ChapterNumber { get; init; } = "";
     [JsonPropertyName("subquest_index")] public int SubquestIndex { get; init; }
+    [JsonPropertyName("subquest_id")] public int SubquestId { get; init; }
     [JsonPropertyName("subquest_title")] public string SubquestTitle { get; init; } = "";
+    [JsonPropertyName("talk_id")] public int TalkId { get; init; }
     [JsonPropertyName("sequence")] public int Sequence { get; init; }
     [JsonPropertyName("variant")] public int Variant { get; init; }
     [JsonPropertyName("line_id")] public long LineId { get; init; }
+    [JsonPropertyName("next_line_ids")] public List<long> NextLineIds { get; init; } = [];
     [JsonPropertyName("speaker_type")] public string SpeakerType { get; init; } = "";
+    [JsonPropertyName("speaker_id")] public int SpeakerId { get; init; }
     [JsonPropertyName("speaker")] public string Speaker { get; init; } = "";
     [JsonPropertyName("text_hash")] public long TextHash { get; init; }
     [JsonPropertyName("text")] public string Text { get; init; } = "";
@@ -223,12 +252,21 @@ public sealed class StoryDialogueLine
     [JsonPropertyName("evidence_kind")] public string EvidenceKind { get; init; } = "textmap";
     [JsonPropertyName("source_page_id")] public string SourcePageId { get; init; } = "";
     [JsonPropertyName("source_page_name")] public string SourcePageName { get; init; } = "";
+    [JsonIgnore] public string EvidenceId => EvidenceKind switch
+    {
+        "supplemental_page" => $"archive:{SourcePageId}:{Sequence}",
+        "character_story" => $"character:hutao:{TextHash}:{Sequence}",
+        _ => $"textmap:{ChapterId}:{SubquestIndex}:{LineId}:{Variant}",
+    };
+    [JsonIgnore] public string SceneKey => $"{EvidenceKind}:{ChapterId}:{SourcePageId}:{SubquestIndex}:{TalkId}:{(EvidenceKind == "character_story" ? TextHash : 0)}";
 }
 
 public sealed record DialogueSearchHit(
     string ChapterId,
     double Score,
-    IReadOnlyList<StoryDialogueLine> Lines);
+    IReadOnlyList<StoryDialogueLine> Lines,
+    long MatchedLineId = 0,
+    string MatchKind = "chapter-window");
 
 internal sealed class StoryPageManifest
 {

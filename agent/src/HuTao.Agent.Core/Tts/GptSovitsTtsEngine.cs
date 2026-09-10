@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HuTao.Agent.Core.Abstractions;
+using HuTao.Agent.Core.Runtime;
 
 namespace HuTao.Agent.Core.Tts;
 
@@ -15,25 +16,31 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
     private readonly string _gptModel;
     private readonly string _sovitsModel;
     private readonly string _outputDir;
+    private readonly string? _pythonPath;
 
     public GptSovitsTtsEngine(
         string python,
         string inferScript,
         string gptModel,
         string sovitsModel,
-        string outputDir)
+        string outputDir,
+        string? pythonPath = null)
     {
         _python = python;
         _inferScript = inferScript;
         _gptModel = gptModel;
         _sovitsModel = sovitsModel;
         _outputDir = outputDir;
+        _pythonPath = pythonPath;
     }
 
     public string Name => "gpt-sovits";
 
     public async Task<TtsResult> SynthesizeAsync(TtsRequest request, CancellationToken ct = default)
     {
+        if (!PortablePythonRuntime.TryPrepare(_python, _pythonPath))
+            throw new InvalidOperationException("便携 Python 初始化失败");
+
         Directory.CreateDirectory(_outputDir);
         var outPath = Path.Combine(_outputDir, $"agent_tts_{DateTime.Now:yyyyMMdd_HHmmss_fff}.wav");
 
@@ -44,7 +51,10 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
             // 按需模式也不弹出新的控制台窗口；常态化模式由 ResidentGptSovitsTtsEngine 负责复用进程。
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
+        PortablePythonRuntime.ConfigureProcess(psi, _python, _pythonPath);
         psi.ArgumentList.Add(_inferScript);
         psi.ArgumentList.Add("--ref_audio");
         psi.ArgumentList.Add(request.RefAudioPath ?? throw new ArgumentNullException(nameof(request.RefAudioPath), "few-shot 需要参考音频"));
@@ -67,6 +77,9 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("无法启动 TTS Python 进程");
+        // 两条管道同时排空，避免输出缓冲区写满导致子进程死锁。只保留 stderr 尾部。
+        var stdout = ReadDiagnosticTailAsync(process.StandardOutput, 0);
+        var stderr = ReadDiagnosticTailAsync(process.StandardError, 16384);
 
         try
         {
@@ -86,12 +99,32 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
             throw;
         }
 
+        await stdout.ConfigureAwait(false);
+        var diagnostic = await stderr.ConfigureAwait(false);
+        // 推理异常可能打印当前文本/参考台词，落日志前移除。
+        foreach (var value in new[] { request.Text, request.RefText }.Where(v => !string.IsNullOrEmpty(v)))
+            diagnostic = diagnostic.Replace(value!, "[speech-text]", StringComparison.Ordinal);
+
         if (process.ExitCode != 0)
-            throw new InvalidOperationException($"TTS 合成失败，退出码 {process.ExitCode}");
+            throw new TtsProcessException(process.ExitCode, diagnostic);
 
         if (!File.Exists(outPath))
             throw new FileNotFoundException($"TTS 未生成音频文件: {outPath}");
 
         return new TtsResult(outPath, SampleRate: 24000, DurationSeconds: 0);
+    }
+
+    private static async Task<string> ReadDiagnosticTailAsync(StreamReader reader, int capacity)
+    {
+        var buffer = new char[2048];
+        var tail = new System.Text.StringBuilder();
+        int count;
+        while ((count = await reader.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+        {
+            if (capacity == 0) continue;
+            tail.Append(buffer, 0, count);
+            if (tail.Length > capacity) tail.Remove(0, tail.Length - capacity);
+        }
+        return tail.ToString();
     }
 }

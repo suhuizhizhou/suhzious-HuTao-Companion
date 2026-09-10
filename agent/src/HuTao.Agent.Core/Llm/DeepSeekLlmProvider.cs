@@ -50,7 +50,7 @@ public sealed class DeepSeekLlmProvider : ILLMProvider
             model = _model,
             messages,
             temperature = _temperature,
-            max_tokens = 400,
+            max_tokens = 1000,
             stream = false,
         };
 

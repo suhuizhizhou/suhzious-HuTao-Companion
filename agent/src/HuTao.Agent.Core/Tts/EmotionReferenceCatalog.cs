@@ -92,6 +92,13 @@ public sealed class EmotionReferenceCatalog
         }
     }
 
+    /// <summary>当前角色是否至少配置了一条实际存在的参考音频。</summary>
+    public bool HasUsableReference
+        => _profiles.Values
+            .SelectMany(profile => profile.References)
+            .Any(reference => File.Exists(ResolvePath(reference.Audio)) &&
+                              !string.IsNullOrWhiteSpace(reference.Text));
+
     private EmotionProfile? FindUsableProfile(string emotion)
         => _profiles.TryGetValue(emotion, out var profile) && profile.References.Count > 0
             ? profile

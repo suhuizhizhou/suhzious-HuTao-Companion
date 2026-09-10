@@ -1,0 +1,64 @@
+{
+  "emotions": {
+    "neutral": {
+      "speed_factor": 1.0,
+      "temperature": 0.58,
+      "references": [
+        { "audio": "../../voice/klee/wav/6787bdafdd03717e.wav", "text": "有一个喜欢写故事的魔女阿姨。" },
+        { "audio": "../../voice/klee/wav/61335463fedb347a.wav", "text": "这是可莉创办的小魔女会哦。我是小魔女可莉。" },
+        { "audio": "../../voice/klee/wav/69c34e2468b621f6.wav", "text": "早安！带可莉出去玩吧！我们一起来冒险！" },
+        { "audio": "../../voice/klee/wav/f1dd6db23742961c.wav", "text": "要带可莉去大冒险吗？可莉已经等不及啦。" }
+      ]
+    },
+    "cheerful": {
+      "speed_factor": 1.08,
+      "temperature": 0.72,
+      "references": [
+        { "audio": "../../voice/klee/wav/bf2b8e5c196cd42d.wav", "text": "哒哒哒。冲呀，全都可以炸完～" },
+        { "audio": "../../voice/klee/wav/a314a78061109a73.wav", "text": "羽球节！！哇！！" },
+        { "audio": "../../voice/klee/wav/803b4f2e7eed994f.wav", "text": "哇，可莉感到很荣幸，可莉会加油的！" },
+        { "audio": "../../voice/klee/wav/c30c2bd312a13ad1.wav", "text": "铛铛铛——欢迎来到小魔女的茶会！" }
+      ]
+    },
+    "teasing": {
+      "speed_factor": 1.05,
+      "temperature": 0.68,
+      "references": [
+        { "audio": "../../voice/klee/wav/f7803e27d5356ca8.wav", "text": "哼哼哼，这次是可莉更厉害喔！" },
+        { "audio": "../../voice/klee/wav/4601a1f60b091324.wav", "text": "哼哼哼，这次的炸弹可是防水的。" },
+        { "audio": "../../voice/klee/wav/d773a75471202a7c.wav", "text": "嘿嘿，可莉把秘诀都告诉了你。你也会变得像可莉一样厉害的！" },
+        { "audio": "../../voice/klee/wav/6e1c7de33f50d920.wav", "text": "一定要悄悄地埋伏好，一下子出动哦！" }
+      ]
+    },
+    "concerned": {
+      "speed_factor": 0.94,
+      "temperature": 0.5,
+      "references": [
+        { "audio": "../../voice/klee/wav/0e49f522e2b9fdee.wav", "text": "我，我是不是闯祸了…？" },
+        { "audio": "../../voice/klee/wav/3ca14b04f063ee78.wav", "text": "完了完了…这下全完了呜呜呜……" },
+        { "audio": "../../voice/klee/wav/3ae275a12dbacedb.wav", "text": "呜…这次居然炸歪了大风车的叶片…真对不起！" },
+        { "audio": "../../voice/klee/wav/db1c234d351cccc5.wav", "text": "我…我的炸弹…炸弹炸伤了人。" }
+      ]
+    },
+    "angry": {
+      "speed_factor": 1.02,
+      "temperature": 0.63,
+      "references": [
+        { "audio": "../../voice/klee/wav/445e25d4298b0ac9.wav", "text": "好坏好坏的大坏蛋！炸飞这个大坏蛋！" },
+        { "audio": "../../voice/klee/wav/0e8283eac4f6dd6a.wav", "text": "我要带好多好多炸弹，把路上的坏蛋炸上天！" },
+        { "audio": "../../voice/klee/wav/d0f707fa9930d15c.wav", "text": "如果长角大魔王找过来，可莉就把他炸飞！" },
+        { "audio": "../../voice/klee/wav/31a69565ea426456.wav", "text": "毛茸茸…与人类为敌？是坏家伙？" }
+      ]
+    },
+    "sleepy": {
+      "speed_factor": 0.88,
+      "temperature": 0.45,
+      "references": [
+        { "audio": "../../voice/klee/wav/4ae705f58ab1c99c.wav", "text": "睡前的时间也很重要！妈妈会坐在可莉身边，给可莉讲各种各样的故事。" },
+        { "audio": "../../voice/klee/wav/1756c3c7d52b0d37.wav", "text": "玩累了的感觉都消失了，好温暖，但是又很平静？" },
+        { "audio": "../../voice/klee/wav/924b3d93e0706b33.wav", "text": "呼…呼……" },
+        { "audio": "../../voice/klee/wav/e1568d711bd7ea29.wav", "text": "这时嘟嘟可就会跟我说，「再跑又要马上进禁闭室啦！」于是可莉就会乖乖地往回走。" }
+      ]
+    }
+  }
+}

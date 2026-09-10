@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HuTao.Agent.Core", "src\HuT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HuTao.Agent.Host", "src\HuTao.Agent.Host\HuTao.Agent.Host.csproj", "{EBE99607-3FE3-4AAF-A54C-2C4CA102245C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HuTao.StoryRag.Eval", "tools\HuTao.StoryRag.Eval\HuTao.StoryRag.Eval.csproj", "{45114E95-FEE8-4E5C-B3AE-FAE63757D356}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,9 +28,14 @@ Global
 		{EBE99607-3FE3-4AAF-A54C-2C4CA102245C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EBE99607-3FE3-4AAF-A54C-2C4CA102245C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EBE99607-3FE3-4AAF-A54C-2C4CA102245C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{45114E95-FEE8-4E5C-B3AE-FAE63757D356}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45114E95-FEE8-4E5C-B3AE-FAE63757D356}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45114E95-FEE8-4E5C-B3AE-FAE63757D356}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45114E95-FEE8-4E5C-B3AE-FAE63757D356}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B30A15CB-8409-4BE4-9152-5FEEB94125A0} = {A8B81C0A-D32E-4656-AB72-1A57F20E8F79}
 		{EBE99607-3FE3-4AAF-A54C-2C4CA102245C} = {A8B81C0A-D32E-4656-AB72-1A57F20E8F79}
+		{45114E95-FEE8-4E5C-B3AE-FAE63757D356} = {A8B81C0A-D32E-4656-AB72-1A57F20E8F79}
 	EndGlobalSection
 EndGlobal

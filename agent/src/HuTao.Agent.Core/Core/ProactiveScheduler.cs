@@ -14,18 +14,32 @@ public sealed class ProactiveScheduler
     private readonly int _minIdleSeconds;
     private readonly IdleTool _idleTool = new();
     private readonly Func<bool>? _doNotDisturb;
+    private readonly TimeProvider _time;
+    private readonly Func<string> _readIdle;
+    private readonly object _gate = new();
     private DateTimeOffset _lastTrigger = DateTimeOffset.MinValue;
 
     public ProactiveScheduler(
         int intervalSeconds,
         int cooldownSeconds,
         int minIdleSeconds,
-        Func<bool>? doNotDisturb = null)
+        Func<bool>? doNotDisturb = null,
+        TimeProvider? timeProvider = null,
+        Func<string>? readIdle = null)
     {
         _intervalSeconds = intervalSeconds;
         _cooldownSeconds = cooldownSeconds;
         _minIdleSeconds = minIdleSeconds;
         _doNotDisturb = doNotDisturb;
+        _time = timeProvider ?? TimeProvider.System;
+        _readIdle = readIdle ?? (() => _idleTool.ExecuteAsync().GetAwaiter().GetResult());
+        NotifyConversationActivity();
+    }
+
+    /// <summary>用户发送、气泡/音频全部结束、角色开场和提醒结束都重新计算冷却。</summary>
+    public void NotifyConversationActivity()
+    {
+        lock (_gate) _lastTrigger = _time.GetUtcNow();
     }
 
     /// <summary>持续运行的心跳循环，到点且满足条件就触发 onTrigger。</summary>
@@ -45,26 +59,31 @@ public sealed class ProactiveScheduler
             if (!ShouldTrigger())
                 continue;
 
-            _lastTrigger = DateTimeOffset.UtcNow;
-            await onTrigger(ct).ConfigureAwait(false);
+            try { await onTrigger(ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch (Exception ex) { Diagnostics.LocalDiagnosticLog.Default.Write("proactive.callback", ex); }
+            finally { NotifyConversationActivity(); }
         }
     }
 
-    private bool ShouldTrigger()
+    public bool ShouldTrigger()
     {
         if (_doNotDisturb?.Invoke() == true)
             return false;
 
-        var sinceLast = DateTimeOffset.UtcNow - _lastTrigger;
+        TimeSpan sinceLast;
+        lock (_gate) sinceLast = _time.GetUtcNow() - _lastTrigger;
         if (sinceLast.TotalSeconds < _cooldownSeconds)
             return false;
 
-        var idle = _idleTool.ExecuteAsync().GetAwaiter().GetResult();
+        string idle;
+        try { idle = _readIdle(); }
+        catch (Exception ex) { Diagnostics.LocalDiagnosticLog.Default.Write("proactive.idle", ex); return false; }
         var match = Regex.Match(idle, @"(\d+)");
         if (match.Success && int.TryParse(match.Groups[1].Value, out var sec))
             return sec >= _minIdleSeconds;
 
-        // 解析失败时默认允许（不阻塞主动性）
-        return true;
+        // 无法确认空闲时不主动打扰。
+        return false;
     }
 }

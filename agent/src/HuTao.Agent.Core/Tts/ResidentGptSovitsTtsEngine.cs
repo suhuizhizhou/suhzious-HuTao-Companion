@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using HuTao.Agent.Core.Abstractions;
+using HuTao.Agent.Core.Runtime;
 
 namespace HuTao.Agent.Core.Tts;
 
@@ -18,6 +19,7 @@ public sealed class ResidentGptSovitsTtsEngine : ITtsEngine, IAsyncDisposable
     private readonly string? _serverScript;
     private readonly string? _gptModel;
     private readonly string? _sovitsModel;
+    private readonly string? _pythonPath;
     private readonly string _device;
     private readonly bool _half;
     private readonly bool _autoStart;
@@ -37,6 +39,7 @@ public sealed class ResidentGptSovitsTtsEngine : ITtsEngine, IAsyncDisposable
         string? serverScript = null,
         string? gptModel = null,
         string? sovitsModel = null,
+        string? pythonPath = null,
         string device = "cuda",
         bool half = true,
         bool autoStart = true,
@@ -47,6 +50,7 @@ public sealed class ResidentGptSovitsTtsEngine : ITtsEngine, IAsyncDisposable
         _serverScript = serverScript;
         _gptModel = gptModel;
         _sovitsModel = sovitsModel;
+        _pythonPath = pythonPath;
         _device = device;
         _half = half;
         _autoStart = autoStart;
@@ -224,6 +228,9 @@ public sealed class ResidentGptSovitsTtsEngine : ITtsEngine, IAsyncDisposable
                 throw new FileNotFoundException($"找不到 {label}: {value}");
         }
 
+        if (!PortablePythonRuntime.TryPrepare(_python!, _pythonPath))
+            throw new InvalidOperationException("便携 Python 初始化失败");
+
         var endpoint = _http.BaseAddress
                        ?? throw new InvalidOperationException("常驻 TTS URL 未配置");
         var psi = new ProcessStartInfo
@@ -234,6 +241,7 @@ public sealed class ResidentGptSovitsTtsEngine : ITtsEngine, IAsyncDisposable
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
         };
+        PortablePythonRuntime.ConfigureProcess(psi, _python!, _pythonPath);
         psi.ArgumentList.Add(_serverScript!);
         psi.ArgumentList.Add("--host");
         psi.ArgumentList.Add(endpoint.Host);

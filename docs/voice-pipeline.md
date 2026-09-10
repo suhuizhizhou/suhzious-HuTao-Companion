@@ -79,7 +79,26 @@ Set-Location GPT-SoVITS
 ```text
 data/persona/hutao/emotion-references.json
 data/persona/furina/emotion-references.json
+data/persona/klee/emotion-references.json
 ```
+
+### 游戏原声优先
+
+桌宠会读取当前角色 `data/voice/<角色>/manifest.jsonl`，按用户问题检索短促台词及少量高度相关的长台词。候选以隐藏的 `[voice=id]原句` 形式交给 Agent；只有 id 存在、文本逐字一致且 WAV 文件仍存在时才直接播放，否则安全回退到 GPT-SoVITS。原声可以作为 1～3 个聊天气泡中的一部分，与正常生成台词混合使用。角色开场白也直接播放预先指定的本地原声，因此启动时不等待模型生成。
+
+### TXT / DOCX 长文朗读
+
+`document_reader` 是 Agent 可调用的本地工具，也可通过桌宠右上角 `📖` 直接选择文档。处理链路为：
+
+完整的模块边界、可替换接口和后续流式/ASR/MMD 扩展点见 [`architecture.md`](architecture.md)。
+
+1. 读取 TXT（支持 UTF-8/UTF-16，其他本地编码降级处理）或 DOCX 正文段落；
+2. 按标题、段落、句末标点和最大长度建立朗读阶段，生成 `plan.json`；
+3. 根据关键词为每段选择 `neutral / cheerful / teasing / concerned / angry / sleepy`，从当前角色情绪参考库随机选择原声参考；
+4. 通过同一个常驻 GPT-SoVITS 服务串行生成分段 WAV；
+5. 使用 `voice/GPT-SoVITS-main/ffmpeg.exe` 合并并编码为 192 kbps MP3。
+
+结果保存在 `data/reading/<文档名_时间>/`，包含标准化原文、朗读计划、分段 WAV、FFmpeg concat 清单和最终 MP3。合成失败或取消时不会清理已完成的分段，以便续查；聊天窗口只显示简短角色确认、括号旁白进度和最终文件按钮，不展示长篇正文。
 
 如需手动启动服务：
 

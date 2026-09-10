@@ -1,0 +1,69 @@
+{
+  "model": "BAAI/bge-small-zh-v1.5",
+  "revision": "7999e1d3359715c523056ef9478215996d62a620",
+  "count": 335698,
+  "passed": 15,
+  "total": 15,
+  "checks": [
+    {
+      "name": "dimensions_and_count",
+      "passed": true
+    },
+    {
+      "name": "unique_stable_ids",
+      "passed": true
+    },
+    {
+      "name": "finite_embeddings",
+      "passed": true
+    },
+    {
+      "name": "l2_normalized",
+      "passed": true
+    },
+    {
+      "name": "health_version",
+      "passed": true
+    },
+    {
+      "name": "real_model_topk",
+      "passed": true
+    },
+    {
+      "name": "cosine_descending",
+      "passed": true
+    },
+    {
+      "name": "stale_index_409",
+      "passed": true
+    },
+    {
+      "name": "browser_origin_403",
+      "passed": true
+    },
+    {
+      "name": "unexpected_host_403",
+      "passed": true
+    },
+    {
+      "name": "bounded_topk",
+      "passed": true
+    },
+    {
+      "name": "empty_query_rejected",
+      "passed": true
+    },
+    {
+      "name": "long_query_rejected",
+      "passed": true
+    },
+    {
+      "name": "oversize_body_413",
+      "passed": true
+    },
+    {
+      "name": "unknown_path_404",
+      "passed": true
+    }
+  ]
+}

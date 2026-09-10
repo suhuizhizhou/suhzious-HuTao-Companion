@@ -12,6 +12,8 @@ public sealed class StoryVectorStore
     private StoryVectorStore(StoryIndex index) => _index = index;
 
     public int Count => _index.Documents.Count;
+    public IReadOnlyList<string> Characters => _index.Documents.SelectMany(d => d.Characters)
+        .Where(s => s.Length >= 2).Distinct(StringComparer.Ordinal).ToArray();
 
     public static StoryVectorStore Load(string indexPath)
     {
@@ -45,6 +47,24 @@ public sealed class StoryVectorStore
             .ThenBy(hit => hit.Document.Id, StringComparer.Ordinal)
             .Take(Math.Max(1, topK))
             .ToList();
+    }
+
+    /// <summary>按逐句召回反推出的章节 ID 取得背景资料，不再重新依赖摘要相似度。</summary>
+    public IReadOnlyList<StoryDocument> FindByIds(IEnumerable<string> ids)
+    {
+        var selected = ids.ToHashSet(StringComparer.Ordinal);
+        return _index.Documents
+            .Where(document => selected.Contains(document.Id))
+            .ToList();
+    }
+
+    /// <summary>用章节元数据中的角色名识别没有显式说“剧情/台词”的自然提问。</summary>
+    public bool ContainsKnownEntity(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return false;
+        return _index.Documents.Any(document => document.Characters.Any(name =>
+            name.Length >= 2 && query.Contains(name, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static double MetadataBonus(string query, StoryDocument document)

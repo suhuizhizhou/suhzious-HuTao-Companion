@@ -1,0 +1,640 @@
+{
+  "signature_voices": [
+    {
+      "text": "可莉护送优菈姐姐回来啦！",
+      "source_file": "vo_MDAQ102_55_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 2047
+    },
+    {
+      "text": "没问题！交给可莉吧！",
+      "source_file": "vo_MDAQ102_50_klee_02.wem",
+      "category": "剧情",
+      "duration_ms": 1930
+    },
+    {
+      "text": "哇，可莉感到很荣幸，可莉会加油的！",
+      "source_file": "vo_MDAQ102_50_klee_04.wem",
+      "category": "剧情",
+      "duration_ms": 3912
+    },
+    {
+      "text": "生存守则之——「炸弹伤人琴找上门」…",
+      "source_file": "vo_KLLQ002_12_klee_03.wem",
+      "category": "剧情",
+      "duration_ms": 4425
+    },
+    {
+      "text": "好耶！谢谢你们！",
+      "source_file": "vo_KLLQ001_15_klee_13.wem",
+      "category": "剧情",
+      "duration_ms": 1501
+    },
+    {
+      "text": "但是，可莉现在交到了新的朋友！",
+      "source_file": "vo_KLLQ002_1_klee_04.wem",
+      "category": "剧情",
+      "duration_ms": 3357
+    },
+    {
+      "text": "可莉不能去打搅他们…",
+      "source_file": "vo_KLLQ002_1_klee_03.wem",
+      "category": "剧情",
+      "duration_ms": 2477
+    },
+    {
+      "text": "我的名字叫作可莉。",
+      "source_file": "vo_KLLQ001_15_klee_08.wem",
+      "category": "剧情",
+      "duration_ms": 1859
+    },
+    {
+      "text": "嘿嘿，可莉是很厉害的！",
+      "source_file": "vo_KLLQ002_10_klee_04.wem",
+      "category": "剧情",
+      "duration_ms": 2464
+    },
+    {
+      "text": "我…我的炸弹…炸弹炸伤了人。",
+      "source_file": "vo_KLLQ003_1_klee_02.wem",
+      "category": "剧情",
+      "duration_ms": 4317
+    },
+    {
+      "text": "——法尔伽叔叔要回来啦？好耶！可莉这就出去找他玩！",
+      "source_file": "vo_dialog_FEJLQ001_klee_01.wem",
+      "category": "对话",
+      "duration_ms": 5445
+    },
+    {
+      "text": "大姐姐你好，我是可莉。对不起，请不要关凯亚哥哥禁闭。",
+      "source_file": "vo_KYCOP001_1909707_klee_06.wem",
+      "category": "其他",
+      "duration_ms": 5974
+    },
+    {
+      "text": "你们一定做了让琴团长生气的事吧，但是，没关系。",
+      "source_file": "vo_KYCOP001_1909707_klee_03.wem",
+      "category": "其他",
+      "duration_ms": 5696
+    },
+    {
+      "text": "凯亚哥哥！嘘…可莉来救你啦，我们一起逃跑吧！",
+      "source_file": "vo_KYCOP001_1909707_klee_01.wem",
+      "category": "其他",
+      "duration_ms": 4451
+    },
+    {
+      "text": "琴团长…它欺负我…",
+      "source_file": "vo_klee_life_less30_02.wem",
+      "category": "其他",
+      "duration_ms": 2533
+    },
+    {
+      "text": "但是不要担心，可莉准备了更大的炸弹！",
+      "source_file": "vo_klee_saferoom_challenge_02.wem",
+      "category": "其他",
+      "duration_ms": 3873
+    },
+    {
+      "text": "嘿嘿，会是什么味道呢…",
+      "source_file": "vo_TJEQ006_1_klee_15.wem",
+      "category": "剧情",
+      "duration_ms": 2487
+    },
+    {
+      "text": "大猫猫你好，我们是小魔女哟！",
+      "source_file": "vo_DQEQ002_5_klee_05.wem",
+      "category": "剧情",
+      "duration_ms": 2841
+    },
+    {
+      "text": "我要带好多好多炸弹，把路上的坏蛋炸上天！",
+      "source_file": "vo_dialog_DQEQ002_klee_01.wem",
+      "category": "对话",
+      "duration_ms": 4131
+    },
+    {
+      "text": "大发现！是虫虫排大队！可莉没见过！",
+      "source_file": "vo_DQEQ002_10_klee_02.wem",
+      "category": "剧情",
+      "duration_ms": 3750
+    },
+    {
+      "text": "好香好香！可莉已经吃到吃不下啦…",
+      "source_file": "vo_klee_spice_pref_01.wem",
+      "category": "料理",
+      "duration_ms": 4216
+    },
+    {
+      "text": "这种方法…虽然比起平时用炸弹的方法稍微麻烦了一点。",
+      "source_file": "vo_klee_mimitomo_friendship2_08.wem",
+      "category": "好感度",
+      "duration_ms": 5168
+    },
+    {
+      "text": "今天也吃到了好吃的东西，可莉好开心！谢谢你！",
+      "source_file": "vo_klee_spice_event_normal_01.wem",
+      "category": "料理",
+      "duration_ms": 4507
+    },
+    {
+      "text": "好的，小派蒙小心！可莉也会小心的。",
+      "source_file": "vo_DQEQ002_5_klee_04.wem",
+      "category": "剧情",
+      "duration_ms": 3681
+    },
+    {
+      "text": "这是可莉创办的小魔女会哦。我是小魔女可莉。",
+      "source_file": "vo_DQEQ001_4_klee_11.wem",
+      "category": "剧情",
+      "duration_ms": 4802
+    },
+    {
+      "text": "好耶！可莉要用…这一套牌！",
+      "source_file": "vo_card_klee_invite_easy_01.wem",
+      "category": "卡牌",
+      "duration_ms": 3947
+    },
+    {
+      "text": "下一杯饮料会有多好喝呢…可莉很好奇！",
+      "source_file": "vo_TJEQ006_2_klee_40.wem",
+      "category": "剧情",
+      "duration_ms": 4197
+    },
+    {
+      "text": "有的嘟嘟可平时住在另一个地方，还没跟你们见过面。",
+      "source_file": "vo_DQEQ001_5_klee_05.wem",
+      "category": "剧情",
+      "duration_ms": 4841
+    },
+    {
+      "text": "早安！带可莉出去玩吧！我们一起来冒险！",
+      "source_file": "vo_klee_dialog_greetingMorning.wem",
+      "category": "对话",
+      "duration_ms": 3536
+    },
+    {
+      "text": "啦啦啦，可莉很厉害吧~",
+      "source_file": "vo_card_klee_inGame_easy_01.wem",
+      "category": "卡牌",
+      "duration_ms": 2410
+    },
+    {
+      "text": "可莉还没有输！",
+      "source_file": "vo_card_klee_inGame_easy_03.wem",
+      "category": "卡牌",
+      "duration_ms": 1512
+    },
+    {
+      "text": "现在可莉进禁闭室的次数，已经越来越少啦！",
+      "source_file": "vo_tips_hexenzirkel_009_4_klee_02.wem",
+      "category": "其他",
+      "duration_ms": 3712
+    },
+    {
+      "text": "只要在心里想好就可以了哦。然后牵着可莉的手，魔法就能传递啦！",
+      "source_file": "vo_DQEQ001_4_klee_18.wem",
+      "category": "剧情",
+      "duration_ms": 5892
+    },
+    {
+      "text": "可莉又找到新的宝物了！",
+      "source_file": "vo_klee_chest_open_01.wem",
+      "category": "其他",
+      "duration_ms": 1850
+    },
+    {
+      "text": "可莉就干脆什么宝物都不带啦。",
+      "source_file": "vo_klee_mimitomo_friendship1_04b_3.wem",
+      "category": "好感度",
+      "duration_ms": 2561
+    },
+    {
+      "text": "小魔女们，我们一起帮布伦妮姐姐！",
+      "source_file": "vo_DQEQ002_16_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 3008
+    },
+    {
+      "text": "太好了！可莉又见到你了。",
+      "source_file": "vo_klee_mimitomo_hello_02.wem",
+      "category": "好感度",
+      "duration_ms": 2137
+    },
+    {
+      "text": "可莉先喝一点，再认真地想想。",
+      "source_file": "vo_TJEQ006_2_klee_02.wem",
+      "category": "剧情",
+      "duration_ms": 3529
+    },
+    {
+      "text": "可莉还不想睡觉…",
+      "source_file": "vo_klee_mimitomo_night_01.wem",
+      "category": "好感度",
+      "duration_ms": 2295
+    },
+    {
+      "text": "好耶！要来！可莉喜欢聊天。",
+      "source_file": "vo_klee_mimitomo_friendship2_01.wem",
+      "category": "好感度",
+      "duration_ms": 2721
+    },
+    {
+      "text": "#荣誉骑士{M#哥哥}{F#姐姐}，再和可莉玩两局吧！",
+      "source_file": "vo_card_klee_freetalk_01a.wem",
+      "category": "卡牌",
+      "duration_ms": 3092
+    },
+    {
+      "text": "因为我们是很了不起的小魔女噢。",
+      "source_file": "vo_DQEQ002_17_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 3249
+    },
+    {
+      "text": "小派蒙和布伦妮姐姐，要加入小魔女会吗？",
+      "source_file": "vo_DQEQ001_4_klee_14.wem",
+      "category": "剧情",
+      "duration_ms": 3790
+    },
+    {
+      "text": "小魔女会也要帮忙！",
+      "source_file": "vo_DQEQ003_1_klee_03.wem",
+      "category": "剧情",
+      "duration_ms": 1701
+    },
+    {
+      "text": "嗯！嘟嘟可试炼大成功！",
+      "source_file": "vo_tips_hexenzirkel_009_6_klee_01.wem",
+      "category": "其他",
+      "duration_ms": 2368
+    },
+    {
+      "text": "哇啊！嘟嘟可的糖果也在饮料上！",
+      "source_file": "vo_TJEQ006_3_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 3313
+    },
+    {
+      "text": "让你看看，可莉的宝物！",
+      "source_file": "vo_card_klee_inGame_easy_04.wem",
+      "category": "卡牌",
+      "duration_ms": 2400
+    },
+    {
+      "text": "嗯…嘟嘟可…",
+      "source_file": "vo_tips_hexenzirkel_009_2_klee_01.wem",
+      "category": "其他",
+      "duration_ms": 3274
+    },
+    {
+      "text": "#好耶！荣誉骑士{M#哥哥}{F#姐姐}要陪可莉玩一整天啦！",
+      "source_file": "vo_card_klee_invite_hard_02a.wem",
+      "category": "卡牌",
+      "duration_ms": 3933
+    },
+    {
+      "text": "那你等等我哦，我马上就可以做出好多炸弹，原材料早就准备好啦！",
+      "source_file": "vo_klee_mimitomo_friendship2_11a_2.wem",
+      "category": "好感度",
+      "duration_ms": 5554
+    },
+    {
+      "text": "琴团长是好人！虽然…有点可怕…",
+      "source_file": "vo_klee_teammate_qin_01.wem",
+      "category": "其他",
+      "duration_ms": 3925
+    },
+    {
+      "text": "可莉有好好控制蹦蹦炸弹！",
+      "source_file": "vo_tips_hexenzirkel_009_4_klee_01.wem",
+      "category": "其他",
+      "duration_ms": 2372
+    },
+    {
+      "text": "#好耶，不愧是荣誉骑士{M#哥哥}{F#姐姐}！",
+      "source_file": "vo_dialog_MDEQ003_klee_02a.wem",
+      "category": "对话",
+      "duration_ms": 3460
+    },
+    {
+      "text": "#荣誉骑士{M#哥哥}{F#姐姐}要跟嘟嘟可玩丢炸弹吗？",
+      "source_file": "vo_dialog_DQEQ001_klee_01a.wem",
+      "category": "对话",
+      "duration_ms": 3130
+    },
+    {
+      "text": "可莉不知道哦，但可莉相信爆米花！",
+      "source_file": "vo_DQEQ001_13_klee_03.wem",
+      "category": "剧情",
+      "duration_ms": 3470
+    },
+    {
+      "text": "小魔女哦，我们是小魔女会。",
+      "source_file": "vo_DQEQ002_1_klee_02.wem",
+      "category": "剧情",
+      "duration_ms": 2888
+    },
+    {
+      "text": "好耶！我们可以去玩噜！",
+      "source_file": "vo_DQEQ001_13_klee_13.wem",
+      "category": "剧情",
+      "duration_ms": 2321
+    },
+    {
+      "text": "这么快嘛？好耶！",
+      "source_file": "vo_TJEQ006_2_klee_39.wem",
+      "category": "剧情",
+      "duration_ms": 2014
+    },
+    {
+      "text": "啊，可莉拿到了，就在刚才蹦蹦炸弹炸出的土坑里…",
+      "source_file": "vo_tips_hexenzirkel_009_4_klee_04.wem",
+      "category": "其他",
+      "duration_ms": 4590
+    },
+    {
+      "text": "可莉有点弄不明白了…",
+      "source_file": "vo_tips_hexenzirkel_009_2_klee_05b_2.wem",
+      "category": "其他",
+      "duration_ms": 2451
+    },
+    {
+      "text": "可莉决定用小魔女的办法去帮助爆米花！",
+      "source_file": "vo_DQEQ001_13_klee_06.wem",
+      "category": "剧情",
+      "duration_ms": 3914
+    },
+    {
+      "text": "是给嘟嘟可的帽子！",
+      "source_file": "vo_tips_hexenzirkel_009_6_klee_03.wem",
+      "category": "其他",
+      "duration_ms": 1594
+    },
+    {
+      "text": "风神保佑，把可莉的炸弹往合适的地方吹吧。",
+      "source_file": "vo_klee_weather_gale_01.wem",
+      "category": "天气",
+      "duration_ms": 4917
+    },
+    {
+      "text": "好耶！是大冒险。",
+      "source_file": "vo_klee_teamJoin_03.wem",
+      "category": "其他",
+      "duration_ms": 1853
+    },
+    {
+      "text": "可莉也想玩小魔女抓大魔女的游戏！我们一起玩好不好？",
+      "source_file": "vo_DQEQ003_5_klee_06.wem",
+      "category": "剧情",
+      "duration_ms": 5031
+    },
+    {
+      "text": "嗯，新型炸弹研究完毕！趁琴团长发现之前，开溜！",
+      "source_file": "vo_klee_starUp_01.wem",
+      "category": "其他",
+      "duration_ms": 4789
+    },
+    {
+      "text": "哒哒哒。冲呀，全都可以炸完～",
+      "source_file": "vo_DQEQ001_4_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 3660
+    },
+    {
+      "text": "铛铛铛——欢迎来到小魔女的茶会！",
+      "source_file": "vo_DQEQ001_13_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 3615
+    },
+    {
+      "text": "可莉要慢慢喝，不能咕噜咕噜就错过了好味道…",
+      "source_file": "vo_TJEQ006_3_klee_04.wem",
+      "category": "剧情",
+      "duration_ms": 4116
+    },
+    {
+      "text": "要是琴团长同意可莉炸掉禁闭室的话…",
+      "source_file": "vo_tips_hexenzirkel_009_4_klee_03.wem",
+      "category": "其他",
+      "duration_ms": 3526
+    },
+    {
+      "text": "好耶，我要和妈妈一起玩！",
+      "source_file": "vo_MDEQ002_23_klee_05.wem",
+      "category": "其他",
+      "duration_ms": 2496
+    },
+    {
+      "text": "嗯嗯，可莉就和嘟嘟可一起…",
+      "source_file": "vo_tips_hexenzirkel_009_5_klee_02.wem",
+      "category": "其他",
+      "duration_ms": 2923
+    },
+    {
+      "text": "好耶，那我们开茶会吧！茶会最适合一起说好多好多话啦。",
+      "source_file": "vo_DQEQ001_4_klee_21.wem",
+      "category": "剧情",
+      "duration_ms": 5487
+    },
+    {
+      "text": "如果长角大魔王找过来，可莉就把他炸飞！",
+      "source_file": "vo_dialog_DQEQ002_klee_03.wem",
+      "category": "对话",
+      "duration_ms": 5333
+    },
+    {
+      "text": "#咦？咦咦？是荣誉骑士{M#哥哥}{F#姐姐}？好耶！",
+      "source_file": "vo_TJEQ006_1_klee_01b.wem",
+      "category": "剧情",
+      "duration_ms": 4547
+    },
+    {
+      "text": "嘿嘿，可莉把秘诀都告诉了你。你也会变得像可莉一样厉害的！",
+      "source_file": "vo_klee_mimitomo_friendship2_07a.wem",
+      "category": "好感度",
+      "duration_ms": 5366
+    },
+    {
+      "text": "可莉不知道…但是可莉是可莉，不是可提？",
+      "source_file": "vo_tips_hexenzirkel_009_2_klee_04.wem",
+      "category": "其他",
+      "duration_ms": 5117
+    },
+    {
+      "text": "这个吗？嘿嘿…是妈妈教我用炼金台做出来的！",
+      "source_file": "vo_TJEQ006_2_klee_08.wem",
+      "category": "剧情",
+      "duration_ms": 4352
+    },
+    {
+      "text": "原来大家在这里，可莉来帮忙啦！",
+      "source_file": "vo_MDAQ102_45_klee_01.wem",
+      "category": "剧情",
+      "duration_ms": 2989
+    },
+    {
+      "text": "今天是好人琴团长！",
+      "source_file": "vo_tips_hexenzirkel_009_6_klee_13.wem",
+      "category": "其他",
+      "duration_ms": 2789
+    },
+    {
+      "text": "对、对！姐姐是怎么让枪转来转去的，教教可莉吧？",
+      "source_file": "vo_anecdote_part1_50_klee_05.wem",
+      "category": "其他",
+      "duration_ms": 4676
+    },
+    {
+      "text": "今天，可莉和妈妈一起炸了好多好多鱼…不要告诉琴团长哦！",
+      "source_file": "vo_TJEQ006_1_klee_12.wem",
+      "category": "剧情",
+      "duration_ms": 5459
+    },
+    {
+      "text": "嘿…那可莉要厉害地点单了！",
+      "source_file": "vo_TJEQ006_1_klee_10.wem",
+      "category": "剧情",
+      "duration_ms": 3406
+    },
+    {
+      "text": "要带可莉去大冒险吗？可莉已经等不及啦。",
+      "source_file": "vo_klee_mimitomo_morning_02.wem",
+      "category": "好感度",
+      "duration_ms": 3448
+    },
+    {
+      "text": "你好！你是来找可莉玩的吗？",
+      "source_file": "vo_klee_friendship_01.wem",
+      "category": "好感度",
+      "duration_ms": 2117
+    },
+    {
+      "text": "可莉因为以前炸的鱼无话可说。",
+      "source_file": "vo_tips_hexenzirkel_009_6_klee_11.wem",
+      "category": "其他",
+      "duration_ms": 5480
+    },
+    {
+      "text": "哼哼哼，这次是可莉更厉害喔！",
+      "source_file": "vo_card_klee_invite_easy_02.wem",
+      "category": "卡牌",
+      "duration_ms": 3160
+    },
+    {
+      "text": "这个工坊，可莉知道该怎么用！",
+      "source_file": "vo_mimiTomo_md_klee_alchemy_01.wem",
+      "category": "其他",
+      "duration_ms": 2447
+    },
+    {
+      "text": "好耶！我们一起玩吧！所有幻想朋友来一起玩！",
+      "source_file": "vo_DQEQ003_5_klee_09.wem",
+      "category": "剧情",
+      "duration_ms": 4421
+    },
+    {
+      "text": "可莉的秘密武器，锵锵！",
+      "source_file": "vo_card_klee_inGame_hard_04.wem",
+      "category": "卡牌",
+      "duration_ms": 2646
+    },
+    {
+      "text": "锵锵——可莉登场。",
+      "source_file": "vo_klee_teamJoin_02.wem",
+      "category": "其他",
+      "duration_ms": 2178
+    },
+    {
+      "text": "可莉来温暖大家，轰轰火花——",
+      "source_file": "vo_dialog_DQEQ003_klee_01.wem",
+      "category": "对话",
+      "duration_ms": 4172
+    },
+    {
+      "text": "天气好，心情好，嘟嘟可应该会唱歌？",
+      "source_file": "vo_TJEQ006_3_klee_09.wem",
+      "category": "剧情",
+      "duration_ms": 4449
+    },
+    {
+      "text": "嘿嘿，可莉现在记住了好多好多故事，也能给大家带来新鲜的快乐！",
+      "source_file": "vo_TJEQ006_2_klee_22.wem",
+      "category": "剧情",
+      "duration_ms": 5979
+    },
+    {
+      "text": "所以布伦妮姐姐，把手给我，加入小魔女会吧！",
+      "source_file": "vo_DQEQ003_5_klee_07.wem",
+      "category": "剧情",
+      "duration_ms": 4519
+    },
+    {
+      "text": "好，可莉喜欢看璃月戏！",
+      "source_file": "vo_anecdote_part1_50_klee_04.wem",
+      "category": "其他",
+      "duration_ms": 2869
+    },
+    {
+      "text": "那么我们这就出发吧，去帮助嘟嘟可…",
+      "source_file": "vo_tips_hexenzirkel_009_2_klee_07.wem",
+      "category": "其他",
+      "duration_ms": 3111
+    },
+    {
+      "text": "好多朋友，就像好多嘟嘟可一样，可莉很开心！",
+      "source_file": "vo_dialog_DQEQ001_klee_06.wem",
+      "category": "对话",
+      "duration_ms": 4885
+    },
+    {
+      "text": "小派蒙可以带着可莉飞吗？",
+      "source_file": "vo_DQEQ002_4_klee_03.wem",
+      "category": "剧情",
+      "duration_ms": 2111
+    },
+    {
+      "text": "哼哼哼，这次的炸弹可是防水的。",
+      "source_file": "vo_klee_weather_heavyRain_01.wem",
+      "category": "天气",
+      "duration_ms": 3435
+    },
+    {
+      "text": "再过不久，可莉就要和妈妈一起去炸鱼了…不要告诉琴团长哦！",
+      "source_file": "vo_TJEQ006_1_klee_11.wem",
+      "category": "剧情",
+      "duration_ms": 5585
+    },
+    {
+      "text": "好啦！小魔女派蒙试试自我介绍吧。",
+      "source_file": "vo_DQEQ001_4_klee_20.wem",
+      "category": "剧情",
+      "duration_ms": 3663
+    },
+    {
+      "text": "可莉要去选玩具，放在茶会上给大家玩。",
+      "source_file": "vo_DQEQ001_4_klee_22.wem",
+      "category": "剧情",
+      "duration_ms": 3723
+    },
+    {
+      "text": "小魔女会登场！",
+      "source_file": "vo_DQEQ001_4_klee_09.wem",
+      "category": "剧情",
+      "duration_ms": 1942
+    },
+    {
+      "text": "哦，那…可莉用蹦蹦炸弹炸鱼也是「课题」？",
+      "source_file": "vo_tips_hexenzirkel_009_2_klee_05b_1.wem",
+      "category": "其他",
+      "duration_ms": 4318
+    },
+    {
+      "text": "可莉…想回家了…",
+      "source_file": "vo_klee_life_die_02.wem",
+      "category": "其他",
+      "duration_ms": 2590
+    }
+  ]
+}

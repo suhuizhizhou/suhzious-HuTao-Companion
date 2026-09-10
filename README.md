@@ -10,8 +10,11 @@
 - **人设**：提炼的胡桃人设，希望能够通过dsv4生成符合人设的台词。
 - **对话**：主动搭话；不理她会发「小别扭」
 - **记忆区**：聊天记录持久化，重开可重放、可清空；
-- **桌面桌宠**：WPF 透明置顶窗口，气泡、语音同出，语音可重播
+- **桌面桌宠**：WPF 透明置顶窗口，支持完整聊天、头像气泡、完全隐藏三种模式，语音可重播
 - **ReAct Agent**：Reason → Observe → Think → Act，调用工具感知环境（活动窗口、空闲状态、时间）
+- **剧情 RAG**：自然问句定位逐句原文，支持胡桃个人故事、相邻追问、证据引用和可选本机 BGE 语义检索；资料缺口不会自动补写。
+
+剧情服务的源码阅读路线、数据结构、算法和启动方式见 [Story RAG 白盒文档](docs/story-rag.md)；[测试规范](docs/story-rag-benchmark.md)区分离线检索指标与真实回答/角色自然度，运行入口见 [评测说明](evaluation/story-rag/README.md)。
 
 ## 技术栈
 
@@ -47,7 +50,7 @@
 hutao-companion/
 ├── docs/                    # 部署日志
 ├── data/
-│   ├── persona/             # 胡桃人设 Skill 
+│   ├── persona/             # 胡桃、芙宁娜、可莉人设 Skill
 │   └── voice/               # 语音数据（.gitignore，需自行提取，见下）
 ├── voice/
 │   ├── infer/few_shot_infer.py   # GPT-SoVITS 按需推理脚本
@@ -111,9 +114,33 @@ cd agent
 .\run-pet.ps1   # 启动
 ```
 
-启动后：一个置顶小窗口，气泡「本堂主来啦！」；输入框打字回车与她对话；放着不动 10 分钟以上她会主动搭话。
+启动后默认显示 `350 × 480` 的完整聊天窗口；标题栏 `◫` 可缩成头像与最近一条角色气泡，`—` 可完全隐藏到系统托盘。双击头像或托盘图标可恢复完整窗口，托盘右键菜单也可切换三种模式和“始终置顶”。窗口模式、位置及置顶开关保存在 `%LOCALAPPDATA%\HuTaoCompanion\ui-settings.json`。普通桌面窗口下使用 WPF `Topmost` 和 Windows 原生置顶双重保障；全屏独占程序和系统安全桌面仍可能覆盖桌宠。
+
+默认进入胡桃；点击右上角角色按钮会展开胡桃、芙宁娜和可莉的选择列表，人设、声线、主题和聊天记录随角色切换。输入框打字回车即可对话；放着不动 10 分钟以上角色会主动搭话。可莉的 GPT-SoVITS 参考音频按 [`data/persona/klee/voice-setup.md`](data/persona/klee/voice-setup.md) 准备，缺少音频时自动使用文字模式。
+
+角色开场白直接播放本地游戏原声，不调用 LLM 或 TTS。正常聊天会先从本地完整语音清单中检索与当前问题相关的原句；Agent 只有在逐字选中候选台词时才直接播放对应 WAV，其余气泡继续使用 GPT-SoVITS 合成。
+
+右上角 `📖` 可选择 TXT 或 DOCX 生成角色声线朗读。系统按章节、段落和句子拆成可控长度，根据内容选择自然、开心、俏皮、关心、严肃或轻声参考音频，依次合成 WAV，最后调用项目自带 FFmpeg 合并为 192 kbps MP3。输出位于 `data/reading/<文档名_时间>/`，其中同时保留原文、分段计划和各段 WAV；也可在聊天中发送“朗读 D:\\path\\稿件.docx 并生成 MP3”调用同一工具。
+
+Core 的分层边界和文档朗读扩展点见 [`docs/architecture.md`](docs/architecture.md)。
 
 > 只想看 Agent 后端（无 GUI），可跑控制台演示：`.\run.ps1`
+
+### 5. 构建本地 Release
+
+```powershell
+.\scripts\build_release.ps1
+```
+
+脚本默认构建完整语音版：除桌宠程序外，还会通过 `conda-pack` 打包便携 Python/PyTorch、GPT-SoVITS v3 与模型权重，并加入三角色参考/原声音频、FFmpeg 和剧情 RAG 数据。只有 `DEEPSEEK_API_KEY` 需要使用者在解压后的 `.env` 中填写。由于完整包超过 GitHub 单资产 2 GiB 限制，脚本会生成小于 1.9 GiB 的 `*.tar.gz.001` 分卷、`assemble-release.ps1` 和 SHA256 校验表；把所有分卷放在同一目录后执行组装脚本即可。
+
+如只需要不含语音与剧情资源的文字版，可执行：
+
+```powershell
+.\scripts\build_release.ps1 -WithoutVoiceRuntime
+```
+
+完整包含游戏提取资源，只适合个人设备或获授权的私有分发，不应上传到公开 GitHub Release。
 
 ## 文档导航
 

@@ -4,7 +4,7 @@ using HuTao.Agent.Core.Persona;
 namespace HuTao.Agent.Core.Llm;
 
 /// <summary>
-/// 占位 LLM：不依赖真实大模型，用模板 + 人设口头禅生成一句"胡桃风格"的搭话。
+/// 占位 LLM：不依赖真实大模型，用模板 + 当前人设口头禅生成一句搭话。
 /// 用途：在接入真实 LLM（云端 Qwen / 本地模型）之前，先跑通整个 Agent 流程。
 /// 切换真实 LLM = 新建一个 ILLMProvider 实现 + 改配置 LlmProvider。
 /// </summary>
@@ -35,6 +35,21 @@ public sealed class MockLlmProvider : ILLMProvider
                 _ => Pick(_persona.Catchphrases.SignatureQuotes) + Pick(_persona.Catchphrases.Particles),
             };
             return Task.FromResult(furinaReply);
+        }
+
+        if (_persona.Name == "可莉")
+        {
+            var kleeReply = userMsg switch
+            {
+                _ when userMsg.Contains("是谁") || userMsg.Contains("你好") || userMsg.Contains("自我介绍")
+                    => "你好呀！我是可莉，西风骑士团的火花骑士！嘟嘟可也来和你打招呼啦！",
+                _ when userMsg.Contains("难过") || userMsg.Contains("累")
+                    => "别难过啦……可莉陪你坐一会儿。等你心情好一点，我们再去找好玩的地方！",
+                _ when userMsg.Contains("炸") || userMsg.Contains("炸鱼")
+                    => "炸鱼要找琴团长看不到的地方！嘿嘿，可莉已经想好路线啦！",
+                _ => Pick(_persona.Catchphrases.SignatureQuotes) + Pick(_persona.Catchphrases.Particles),
+            };
+            return Task.FromResult(kleeReply);
         }
 
         // 简单规则：识别几个关键词，其余走通用搭话

@@ -15,7 +15,7 @@ function category(f) {
   if (f.includes('explore')) return '探索';
   if (f.includes('spice')) return '料理';
   if (f.includes('card')) return '卡牌';
-  if (/vo_(HTLQ|BZLQ|ZBLQ|EQHDJ)/.test(f)) return '剧情';
+  if (/vo_(HTLQ|BZLQ|ZBLQ|EQHDJ|KLLQ|DQEQ|MDAQ|TJEQ|FDAQ|FNNLQ|CLLQ)/.test(f)) return '剧情';
   return '其他';
 }
 
