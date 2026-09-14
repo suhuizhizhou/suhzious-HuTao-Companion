@@ -41,7 +41,7 @@ internal static class NteChecks
                 $"warnings={stats.Warnings.Count}");
 
             // 检索主干：拿一句确定存在于语料里的原文去问，应当能命中。
-            var probe = "塔吉多";   // 带剧情标记，避开硬编码词表的路由限制
+            var probe = "安魂曲";   // 带剧情标记，避开硬编码词表的路由限制
             var hit = await service.RetrieveAsync($"剧情里 {probe} 是谁，给我台词原文");
             Check("nte_retrieval_finds_evidence",
                 hit.Status is StoryStatus.Answer or StoryStatus.Tentative && hit.Evidence.Count > 0,
@@ -60,7 +60,7 @@ internal static class NteChecks
                 $"status={miss.Status}");
 
             // 全角/半角与标点不该影响召回（沿用桌宠既有的归一化）。
-            var punctuated = await service.RetrieveAsync("「塔吉多」的台词原文是哪句");
+            var punctuated = await service.RetrieveAsync("「安魂曲」的台词原文是哪句");
             Check("nte_normalization_robust",
                 punctuated.Evidence.Count > 0,
                 $"evidence={punctuated.Evidence.Count}");

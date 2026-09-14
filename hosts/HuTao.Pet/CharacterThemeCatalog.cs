@@ -34,13 +34,6 @@ internal static class CharacterThemeCatalog
                 Color.FromArgb(64, 140, 96, 190), Color.FromArgb(224, 140, 96, 190),
                 Color.FromRgb(46, 32, 62), Colors.White, Color.FromRgb(232, 220, 246),
                 Color.FromRgb(244, 240, 250), Color.FromRgb(140, 124, 168)),
-            // 异环：塔吉多。标志性爱好是番茄酱，所以直接给番茄红。
-            "tajiduo" => new CharacterTheme(
-                Color.FromArgb(248, 255, 250, 247),
-                Color.FromRgb(206, 62, 48), Color.FromRgb(120, 30, 22),
-                Color.FromArgb(64, 206, 62, 48), Color.FromArgb(224, 206, 62, 48),
-                Color.FromRgb(72, 32, 26), Colors.White, Color.FromRgb(255, 227, 214),
-                Color.FromRgb(252, 243, 238), Color.FromRgb(168, 122, 108)),
             _ => throw new KeyNotFoundException($"未配置角色主题: {characterId}"),
         };
 }

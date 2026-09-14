@@ -95,7 +95,6 @@ var chatCharacters = new[]
     {
         CharacterCatalog.Find("hutao"),
         CharacterCatalog.Find("lacrimosa"),
-        CharacterCatalog.Find("tajiduo"),
     }
     .Where(c => c is not null).Select(c => c!).ToArray();
 if (chatCharacters.Length < 2)

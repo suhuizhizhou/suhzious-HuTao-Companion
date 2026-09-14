@@ -728,7 +728,6 @@ internal static class StructuralChecks
             Path.Combine(repoRoot, "data", "persona", "hutao", "emotion-references.json"),
             Path.Combine(repoRoot, "data", "persona", "furina", "emotion-references.json"),
             Path.Combine(repoRoot, "data", "persona", "klee", "emotion-references.json"),
-            Path.Combine(repoRoot, "data", "nte", "tajiduo", "persona", "emotion-references.json"),
             Path.Combine(repoRoot, "data", "nte", "lacrimosa", "persona", "emotion-references.json"),
         }.Where(File.Exists).ToArray();
 

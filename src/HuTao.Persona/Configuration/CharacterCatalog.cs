@@ -60,19 +60,6 @@ public static class CharacterCatalog
             "安魂曲正在打盹，等一下下哦~",
             "data/nte/_corpus",
             "data/nte/lacrimosa/voice"),
-        // 塔吉多：安魂曲的同伴。他的语音/剧情/人设是从游戏里完整提取出来的，
-        // 因此他是验证「异环角色也能走原声优先」的那一个——安魂曲本人卡在语音包缺失上。
-        new(
-            "tajiduo", "塔吉多", "异象管理局·保镖", "🍅",
-            "data/nte/tajiduo/persona",
-            "data/nte/tajiduo/voice/wav/422455516.wav",
-            "权高位重，责任大大。",
-            "data/nte/tajiduo/persona/emotion-references.json",
-            "鉴定师！塔吉多，闪亮登场！",
-            "data/nte/tajiduo/voice/wav/480638117.wav",
-            "塔吉多正在当保镖，等一下下哦~",
-            "data/nte/_corpus",
-            "data/nte/tajiduo/voice"),
     ];
 
     public static IReadOnlyList<CharacterDefinition> All => Definitions;

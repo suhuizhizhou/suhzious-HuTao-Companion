@@ -54,7 +54,7 @@ public partial class ChatRoomWindow : Window
         // 默认阵容：当前桌宠角色 + 一位异环角色（跨作品是这间聊天室最有意思的地方）。
         if (!string.IsNullOrWhiteSpace(preselected) && _cast.Any(c => c.Id == preselected))
             _selected.Add(preselected!);
-        foreach (var fallback in new[] { "hutao", "lacrimosa", "tajiduo" })
+        foreach (var fallback in new[] { "hutao", "lacrimosa" })
             if (_selected.Count < 2 && _cast.Any(c => c.Id == fallback))
                 _selected.Add(fallback);
 
