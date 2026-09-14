@@ -6,7 +6,7 @@
 
 ## 当前实现
 
-`ReactRetrievalLoop` 位于 `agent/src/HuTao.Agent.Core/Core/ReactRetrievalLoop.cs`。
+`ReactRetrievalLoop` 位于 `src/HuTao.Dialogue/Core/ReactRetrievalLoop.cs`。
 
 执行流程：
 
@@ -55,13 +55,13 @@
 默认评测器现在自动合并 v2、v3 和 v4 数据集，不再需要分别维护多套入口。离线检索与结构验证：
 
 ```powershell
-dotnet agent/tools/HuTao.StoryRag.Eval/bin/Debug/net9.0/HuTao.StoryRag.Eval.dll --out evaluation/story-rag/results/full
+dotnet tests/HuTao.StoryRag.Eval/bin/Debug/net9.0/HuTao.StoryRag.Eval.dll --out evaluation/story-rag/results/full
 ```
 
 真实 DeepSeek Planner 验证（需要 `DEEPSEEK_API_KEY`）：
 
 ```powershell
-dotnet agent/tools/HuTao.StoryRag.Eval/bin/Debug/net9.0/HuTao.StoryRag.Eval.dll --react-live --react-limit 10 --out evaluation/story-rag/results/full-react
+dotnet tests/HuTao.StoryRag.Eval/bin/Debug/net9.0/HuTao.StoryRag.Eval.dll --react-live --react-limit 10 --out evaluation/story-rag/results/full-react
 ```
 
 同一份 `report.json` 同时保存离线检索指标和 `react` 指标，包括 Planner 子任务数、并行批次、补检索次数、证据组覆盖率及每题的步骤轨迹。`--react-limit` 用于控制 API 成本；去掉它才运行整个数据集。

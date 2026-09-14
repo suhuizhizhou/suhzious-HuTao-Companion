@@ -36,7 +36,7 @@ TTS 是聊天文本的可选附件，不是回复成功的前置条件。模型�
 不启动 Python、GPU、播放器即可运行：
 
 ```powershell
-dotnet agent/tools/HuTao.StoryRag.Eval/bin/Debug/net9.0/HuTao.StoryRag.Eval.dll --speech-checks
+dotnet tests/HuTao.StoryRag.Eval/bin/Debug/net9.0/HuTao.StoryRag.Eval.dll --speech-checks
 ```
 
 覆盖退出码、stderr 脱敏、文字保留、单轮不重试、下一轮恢复、原声直通、动作静音、取消传播和日志失败等路径。

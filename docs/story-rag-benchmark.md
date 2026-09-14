@@ -66,7 +66,7 @@ v3 的复杂题不把“问题写得很长”当作难度，而是显式标注�
 | 语音接口 | 动作括号、隐藏证据 | 旁白和 ID 不朗读 |
 | 复杂联动 | 多证据组、跨来源、因果/时间链、反事实、部分可答 | 按难度/推理类型/来源范围分层报告，不能只看总平均 |
 
-离线结构测试位于 agent/tools/HuTao.StoryRag.Eval/StructuralChecks.cs，涵盖上述工程边界、分支/合流、版本变化、旧快照、真实 ReactAgent 接入、引用/原话/数字/动作检查。Stub 不下载模型、不调用 DeepSeek，不会生成语音。
+离线结构测试位于 tests/HuTao.StoryRag.Eval/StructuralChecks.cs，涵盖上述工程边界、分支/合流、版本变化、旧快照、真实 ReactAgent 接入、引用/原话/数字/动作检查。Stub 不下载模型、不调用 DeepSeek，不会生成语音。
 
 ## 3. 量化指标的严格含义
 
@@ -108,7 +108,7 @@ Latency 使用 ceil(p×n)-1 的 nearest-rank 分位数；报告记录数据集 S
 
 ~~~powershell
 # 在已有 DEEPSEEK_API_KEY 的终端运行；先用小样本控制成本
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --live --live-limit 10 --out evaluation/story-rag/results/live-small
+dotnet run --project tests/HuTao.StoryRag.Eval -- --live --live-limit 10 --out evaluation/story-rag/results/live-small
 ~~~
 
 默认每个问题族仅取首个问法；加 `--live-all-variants` 才会逐个测试 `queries` 中的所有自然问法变体。每个样本依次测试：

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Version = '0.1.0',
     [string]$Runtime = 'win-x64',
     [switch]$WithoutVoiceRuntime,
@@ -312,7 +312,7 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
 $env:NUGET_PACKAGES = Join-Path $repoRoot 'agent/.nuget'
 $env:MSBuildEnableWorkloadResolver = 'false'
 
-$project = Join-Path $repoRoot 'agent/src/HuTao.Pet/HuTao.Pet.csproj'
+$project = Join-Path $repoRoot 'hosts/HuTao.Pet/HuTao.Pet.csproj'
 dotnet publish $project `
     -c Release `
     -r $Runtime `
