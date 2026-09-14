@@ -19,10 +19,35 @@ AgentRuntimeFactory ── PersonaLoader / LLM / Tools / TTS
 `ReactAgent` 只维护对话历史并编排 ReAct 顺序，具体职责拆为：
 
 - `IToolObservationCollector`：工具执行与观察结果格式化，可继续增加并行、超时和审计；
-- `IAgentPromptBuilder`：集中拼装人设、隐私、原声、RAG 和文档朗读约束；
+- `IAgentPromptBuilder`：集中拼装人设、沉浸约束、隐私、分层原声、RAG 和文档朗读约束；
 - `ISpeechSegmentParser`：解析隐藏情绪/原声标签，并执行原声严格校验；
 - `ICharacterSpeechSynthesizer`：选择情绪参考并调用 TTS；
+- `OriginalVoiceRetriever`：用整轮上下文做三路原声召回，产出候选但不做最终裁决；
+- `ImmersionGate`：两层出戏闸门，决定最终对用户可见的台词；
 - `SpeechText`：统一 UI 与 Core 对括号动作的判定，保证动作不发声。
+
+## 沉浸性与原声的边界
+
+```text
+ReactAgent
+   ├── OriginalVoiceRetriever ── OriginalVoiceCatalog
+   │      └── 只产出「候选」；能否播放由 SpeechSegmentParser 逐字校验裁决
+   ├── MemoryRetriever ── ConversationMemoryStore ── MemoryBm25Index
+   │      └── 只产出「召回片段」；写入与失效由 Store 负责，提炼由 Consolidator 负责
+   └── ImmersionGate
+          ├── ImmersionRuleGate   # 确定性、零延迟，机械性出戏
+          └── ImmersionCritic     # LLM 评审，语义性出戏与跨轮连贯（含长期记忆）
+```
+
+- `ImmersionGate` 的输出是**唯一**对用户可见的台词来源。它内部可以重写、可以退兜底，但绝不把违规内容向上传递。
+- 审查员在**一次性构造的历史**上工作，审查过程与指令绝不写回 `_history`，因此评测本身不会破坏角色上下文连贯。
+- 审查员同时拿到本轮召回给演员的**同一份长期记忆**，所以长程自相矛盾（比最近 8 条更早的事实）也能被发现。
+- `OriginalVoiceCatalog` 是只读素材目录；`OriginalVoiceRetriever` 是检索策略。换检索算法不需要动目录，换素材不需要动算法。
+- 记忆四层职责分离：`ConversationMemoryStore` 管「记什么 / 何时失效」，`MemoryBm25Index` 管索引，`MemoryRetriever` 管打分与渲染，`MemoryConsolidator` 管提炼。后台提炼由 `MemoryMaintenance` 按空闲/待处理量/冷却调度，**宿主只需在已有的空闲轮询里调用它**。
+- RAG 侧的原声通道收在 `StoryAnswerComposer` 的一个可选 `voice_id` 字段里，白名单由 `RagExact` 候选集合决定，越权 id 静默丢弃。
+
+详见 [沉浸性保障](immersion.md)、[长期记忆](memory.md) 与 [原声优先](original-voice.md)。
+
 
 ## 面向后续能力的稳定契约
 
@@ -78,18 +103,27 @@ StoryKnowledgeTool 仅适配 Agent 工具；IStoryRagService 管理查询、共�
 ReactAgent 每轮只调用一次剧情服务，并把隐藏证据保存在 TextResult/AgentTurnResult，避免与 TTS 或 WPF 耦合。详见 [Story RAG 白盒文档](story-rag.md) 与 [测试规范](story-rag-benchmark.md)。
 
 ```text
-agent/src/HuTao.Agent.Core/
-├── Abstractions/      # 跨层接口
-├── Configuration/     # 角色和运行配置
-├── Core/              # ReactAgent、调度器等 Agent 领域编排
-├── DocumentReading/   # 文档朗读领域模型与应用服务
-├── Llm/               # DeepSeek / Mock 实现
-├── Persona/           # 人设和原声目录
-├── Rag/               # 剧情知识库
-├── Runtime/           # AgentRuntimeFactory 组合根
-├── Storage/           # 聊天记录、重要记忆
-├── Tools/             # Agent 工具适配器
-└── Tts/               # GPT-SoVITS 与情绪参考实现
+src/                          # C# 库，按依赖方向分层（箭头只能向下，见 docs/modules.md）
+├── HuTao.Foundation/         # 零依赖：跨层接口 Abstractions、诊断、仓库定位
+├── HuTao.Bridge/             # C# ↔ Python：便携运行时定位与子进程启动
+├── HuTao.Voice/              # TTS 引擎（常驻/按需/兜底）+ 情绪参考
+├── HuTao.Persona/            # 人设包、角色词表、原声目录与召回、角色配置
+├── HuTao.Knowledge/          # 剧情 RAG、长期记忆、文档朗读
+└── HuTao.Dialogue/           # ReactAgent、沉浸闸门、聊天室、工具、存储、LLM 实现
+    ├── Core/                 #   ReactAgent、调度器等领域编排
+    ├── Immersion/            #   出戏规则闸门、LLM 评审与编排管线
+    ├── ChatRoom/             #   多人聊天室：轮次、导演接口、LLM 导演
+    ├── Tools/                #   工具适配器（含 CLI 包装与 MCP 适配）
+    ├── Storage/              #   聊天记录、重要记忆
+    ├── Llm/                  #   DeepSeek / Mock 实现
+    └── Runtime/              #   AgentRuntimeFactory 组合根
+hosts/                        # 可执行宿主：HuTao.Pet（WPF 桌宠）、HuTao.Host（控制台）
+tests/                        # HuTao.StoryRag.Eval：结构检查 + 离线评测
 ```
 
-WPF 的 `CharacterThemeCatalog` 只保存视觉颜色，不保存 persona、语音或文件路径；这些统一来自 Core 的 `CharacterCatalog`。窗口交互按职责拆在 `MainWindow.xaml.cs`、`MainWindow.CharacterSelection.cs` 和 `MainWindow.DocumentReading.cs`，后续可继续把音频播放和主动调度拆成独立适配器。
+> `CharacterCatalog` 现在在 `src/HuTao.Persona/Configuration`：它描述「有哪些角色、各自需要什么」，
+> 属于角色包而非领域编排。**依赖方向由两条用例守着**（`dependency_direction_acyclic` 扫 `using`，
+> `dependency_project_references_acyclic` 扫 `ProjectReference`），见 [`modules.md`](modules.md) §5。
+
+WPF 的 `CharacterThemeCatalog` 只保存视觉颜色，不保存 persona、语音或文件路径；这些统一来自 Core 的 `CharacterCatalog`。窗口交互按职责拆在 `MainWindow.xaml.cs`、`MainWindow.CharacterSelection.cs`、`MainWindow.DocumentReading.cs` 和 `MainWindow.ChatRoom.cs`，后续可继续把音频播放和主动调度拆成独立适配器。聊天室窗口独立为 `ChatRoomWindow.xaml(.cs)`。
+

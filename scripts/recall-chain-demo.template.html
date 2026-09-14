@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>胡桃 Story RAG · Agent 召回链路演示</title>
+<style>
+  :root{
+    --bg:#0e1014; --panel:#161a21; --panel2:#1c2129; --line:#262c36;
+    --fg:#e7eaf0; --muted:#8b93a7; --dim:#5d667a;
+    --ok:#57d18b; --warn:#f5b955; --bad:#f2686b; --info:#6ea8fe;
+    --arm-Baseline:#6ea8fe; --arm-LexicalOnly:#7bd88f; --arm-ConceptOnly:#f5b955;
+    --arm-SemanticOnly:#c792ea; --arm-HierarchyFirst:#f78fb3; --arm-Fusion:#4fd1c5;
+    --arm-ChapterScope:#ffd166; --arm-default:#69718a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;
+    font:13.5px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  code,.mono{font-family:"Cascadia Mono",Consolas,monospace}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#141922,#0e1014);flex:none}
+  h1{margin:0 0 4px;font-size:16px;letter-spacing:.3px}
+  h1 span{color:var(--muted);font-weight:400;font-size:12.5px;margin-left:8px}
+  .metaline{color:var(--dim);font-size:11.5px}
+  .metaline b{color:var(--muted);font-weight:500}
+  .wrap{display:flex;flex:1;min-height:0}
+  aside{width:310px;min-width:310px;border-right:1px solid var(--line);
+    display:flex;flex-direction:column;background:#12151b}
+  .filters{padding:10px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
+  .chip{cursor:pointer;user-select:none;border:1px solid var(--line);background:#181d25;color:var(--muted);
+    border-radius:999px;padding:3px 9px;font-size:11.5px}
+  .chip.on{background:#22314a;border-color:#33507d;color:#cfe0ff}
+  input[type=search]{width:100%;margin:0 0 8px;padding:7px 9px;border-radius:7px;
+    border:1px solid var(--line);background:#0f1319;color:var(--fg);font-size:12.5px}
+  .filters-box{padding:10px 10px 4px;border-bottom:1px solid var(--line)}
+  .list{overflow:auto;flex:1}
+  .case{padding:8px 11px;border-bottom:1px solid #1d222a;cursor:pointer}
+  .case:hover{background:#181e27}
+  .case.on{background:#1b2635;box-shadow:inset 3px 0 0 var(--info)}
+  .case .id{font-size:12px;color:#cfd6e6;word-break:break-all}
+  .case .sm{color:var(--dim);font-size:11px;margin-top:3px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  main{flex:1;overflow:auto;padding:16px 20px 60px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+  .panel h2{margin:0 0 8px;font-size:13px;color:#cfd6e6;display:flex;align-items:center;gap:8px}
+  .panel h2 .n{display:inline-flex;width:19px;height:19px;border-radius:50%;background:#232b38;
+    color:var(--muted);font-size:11px;align-items:center;justify-content:center;font-weight:600}
+  .q{font-size:14px;line-height:1.75;background:#101419;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .kv{color:var(--dim);font-size:11.5px}
+  .kv b{color:var(--fg);font-weight:600}
+  .badge{display:inline-block;border-radius:5px;padding:1px 6px;font-size:11px;border:1px solid transparent;white-space:nowrap}
+  .b-arm{background:#1d2430;border-color:#2f3a4b;color:#cfd6e6}
+  .b-ok{background:#16301f;border-color:#2b5c3c;color:#8ee0ad}
+  .b-warn{background:#332a14;border-color:#5e4a1e;color:#f0cd86}
+  .b-bad{background:#331a1c;border-color:#5e2a2e;color:#f3a0a2}
+  .b-info{background:#152538;border-color:#28486e;color:#a9caf5}
+  .b-dim{background:#1a1e26;border-color:#272d38;color:#8b93a7}
+  .arm{padding:1px 7px;border-radius:5px;font-size:11px;color:#0d1016;font-weight:600}
+  .step{border:1px solid var(--line);border-radius:9px;margin:8px 0;background:var(--panel2);overflow:hidden}
+  .step>.head{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:8px 11px;
+    background:#1a1f28;border-bottom:1px solid var(--line);cursor:pointer}
+  .step>.body{padding:9px 11px}
+  .step:not(.open)>.body{display:none}
+  .rnd{font-weight:700;color:#9fb4d8;font-size:12px}
+  .stepq{font-size:12.5px;color:#dbe2ee;word-break:break-word}
+  .stepq .gap{color:var(--warn)}
+  .bar{height:5px;border-radius:3px;background:#232a35;overflow:hidden;width:90px;display:inline-block;vertical-align:middle}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#3c6ea8,#6ea8fe)}
+  table{border-collapse:collapse;width:100%;margin-top:8px;font-size:12px}
+  th,td{text-align:left;padding:5px 7px;border-bottom:1px solid #222833;vertical-align:top}
+  th{color:var(--dim);font-weight:500;font-size:11px;white-space:nowrap}
+  td.num{text-align:right;font-family:"Cascadia Mono",Consolas,monospace;white-space:nowrap}
+  .ev{color:#c9d2e2}
+  .ev .sp{color:var(--muted)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .two>div{background:#101419;border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  .two h3{margin:0 0 6px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.7}
+  .legend{display:flex;gap:8px;flex-wrap:wrap}
+  .legend .item{display:flex;gap:6px;align-items:baseline;background:#141920;border:1px solid var(--line);
+    border-radius:7px;padding:5px 8px;max-width:430px}
+  .legend .item .d{color:var(--muted);font-size:11.5px}
+  .controls{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  button{cursor:pointer;background:#1d2430;color:#cfd6e6;border:1px solid #2f3a4b;border-radius:7px;
+    padding:5px 11px;font-size:12px;font-family:inherit}
+  button:hover{background:#243043}
+  button.primary{background:#22406b;border-color:#3a63a0;color:#dcebff}
+  button:disabled{opacity:.45;cursor:default}
+  details{margin-top:6px}
+  summary{cursor:pointer;color:var(--muted);font-size:11.5px}
+  .flash{animation:flash .5s ease-out}
+  @keyframes flash{from{background:#22314a}to{background:transparent}}
+  .stat{display:flex;gap:16px;flex-wrap:wrap;background:#12161d;border:1px solid var(--line);
+    border-radius:9px;padding:9px 13px;margin-bottom:12px}
+  .stat div{font-size:11.5px;color:var(--dim)}
+  .stat div b{display:block;font-size:15px;color:var(--fg);font-weight:600;letter-spacing:.2px}
+  .note{color:var(--dim);font-size:11px;margin-top:6px}
+  .hidden{display:none}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#232a35;border-radius:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>胡桃 Story RAG · Agent 召回链路<span id="hdr-sub"></span></h1>
+  <div class="metaline" id="hdr-meta"></div>
+</header>
+<div class="wrap">
+  <aside>
+    <div class="filters-box">
+      <input type="search" id="q" placeholder="搜索用例 id / 查询…">
+      <div class="filters" id="filters"></div>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+<script>
+const DATA = /*__DATA__*/null;
+const ARM_ORDER = (DATA.arm_catalog||[]).map(a=>a.arm).concat(['default']);
+const ARM_INTENT = Object.fromEntries((DATA.arm_catalog||[]).map(a=>[a.arm,a.intent]));
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = v => (100*Math.max(0,Math.min(1,v||0))).toFixed(0)+'%';
+const armChip = a => `<span class="arm" style="background:var(--arm-${esc(a)})">${esc(a)}</span>`;
+const srcChip = s => s==='agent' ? '<span class="badge b-info">agent 选</span>'
+  : s==='configured' ? '<span class="badge b-dim">轮次配置</span>'
+  : '<span class="badge b-dim">默认臂</span>';
+const judgeChip = v => {
+  const m={immersive:'b-ok','minor-break':'b-warn',broken:'b-bad','judge-failed':'b-dim'};
+  return `<span class="badge ${m[v]||'b-dim'}">判官 ${esc(v||'n/a')}</span>`;
+};
+const statusChip = s => {
+  const m={Answer:'b-ok',Tentative:'b-warn',Clarify:'b-info',NotFound:'b-bad',Unavailable:'b-bad',
+    Bypass:'b-dim',Playful:'b-dim',Comfort:'b-dim',Boundary:'b-dim'};
+  return `<span class="badge ${m[s]||'b-dim'}">${esc(s)}</span>`;
+};
+const STAGES = ['输入与路由','规划（agent 选臂）','逐轮召回','证据池','沉浸闸门','作答（草稿 → 答复）','独立判官评'];
+
+/* ---------- header + legend ---------- */
+function renderHeader(){
+  const m=DATA.meta,t=DATA.totals,cs=m.corpus||{};
+  $('#hdr-sub').textContent = `离线/在线实测轨迹回放 · ${m.strategy||''}`;
+  $('#hdr-meta').innerHTML = [
+    `<b>数据</b> ${esc(m.dataset)}`,
+    `<b>模式</b> ${esc(m.mode)}`,
+    `<b>语料</b> 可检索 ${cs.searchable_lines??'?'} 行 / ${cs.files??'?'} 文件`,
+    `<b>生成于</b> ${esc((m.created_utc||'').replace('T',' ').slice(0,19))}`,
+    `<b>臂探针口径</b> ${esc(m.strategy_probe)}`,
+  ].join(' &nbsp;·&nbsp; ');
+  const gates=m.gates||{};
+  const gateTxt=Object.entries(gates).map(([k,v])=>`${v?'✅':'❌'} ${esc(k)}`).join(' &nbsp; ');
+  const tl=DATA.two_level||{};
+  const st=stepStats();
+  $('#main').innerHTML = `
+    <div class="stat">
+      <div><b>${t.cases}</b>用例</div>
+      <div><b>${t.steps_total}</b>召回步</div>
+      <div><b>${t.agent_chosen_steps}<span style="font-size:11px;color:var(--muted)"> / ${t.steps_total}</span></b>agent 自己点的臂</div>
+      <div><b>${t.cases_with_agent_choice}</b>用例里有 agent 选臂</div>
+      <div><b>${t.cases_with_multiple_arms}</b>用例一步内多臂</div>
+      <div><b>${fmtJudge(t)}</b>判官 沉浸/轻微/出戏</div>
+      <div><b>${tl.gained_by_second_level??'-'} / ${tl.lost_by_second_level??'-'}</b>两级召回 补全 / 弄丢</div>
+    </div>
+    <div class="panel">
+      <h2><span class="n">步</span>逐步状态分布（${st.total} 步 · 有证据 ${st.withEvidence} · <b>零证据 ${st.zero}</b>）</h2>
+      <div class="row">${statusLine(st)}</div>
+      <div class="note">零证据不都是故障：<code>Bypass / Playful / Comfort</code> 是「本轮本来就不该检索」；
+      但 <code>Tentative/Answer</code> 之外的 <code>NotFound/Clarify</code> 落在被 <code>depends_on</code> 串起来的链上时，
+      下一级的两级召回会拿不到章节范围（面板里画成「扩章节 0 · 范围为空」）。
+      ChapterScope 本次被选了 ${st.scopeUsed} 次，其中 <b>${st.scopeFired}</b> 次真的拿到了章节范围。</div>
+    </div>
+    <div class="panel">
+      <h2><span class="n">i</span>这是真实轨迹，不是示意图</h2>
+      <div class="kv">页面由 <code>scripts/build-recall-demo.py</code> 从评测报告生成，数据内嵌、无网络依赖。
+      判官口径：<b>${esc(t.judge_scope)}</b>——它<b>不</b>评价事实有效性，事实侧由确定性层单独计数，两条轴不可互相替代。</div>
+      <div class="note">离线门禁：${gateTxt}</div>
+    </div>
+    <div class="panel">
+      <h2><span class="n">臂</span>可枚举召回臂（agent 只能在这里选，不允许输出权重）</h2>
+      <div class="legend">${(DATA.arm_catalog||[]).map(a=>
+        `<div class="item">${armChip(a.arm)}<span class="d">${esc(a.intent)}</span></div>`).join('')}
+      </div>
+      <div class="note">${esc(armUsageLine())}</div>
+    </div>
+    <div id="caseHost"></div>`;
+}
+function fmtJudge(t){
+  return `${t.judge_immersive}/${t.judge_minor_break}/${t.judge_broken}`;
+}
+function stepStats(){
+  const all=DATA.cases.flatMap(c=>c.steps||[]);
+  const byStatus={}; let zero=0, scopeUsed=0, scopeFired=0, withEvidence=0;
+  all.forEach(s=>{
+    byStatus[s.status]=(byStatus[s.status]||0)+1;
+    if(!s.evidence_count) zero++; else withEvidence++;
+    if(s.strategy==='ChapterScope'){ scopeUsed++; if(s.chapter_scope_size>0) scopeFired++; }
+  });
+  return {total:all.length,byStatus,zero,withEvidence,scopeUsed,scopeFired};
+}
+function statusLine(st){
+  const order=['Answer','Tentative','Clarify','NotFound','Bypass','Playful','Comfort','Boundary','Unavailable'];
+  return order.filter(k=>st.byStatus[k]).map(k=>`${statusChip(k)} ${st.byStatus[k]}`).join(' ');
+}
+function armUsageLine(){
+  const u=DATA.totals.arm_usage||{}; const s=DATA.totals.arm_sources||{};
+  const parts=ARM_ORDER.filter(a=>u[a]).map(a=>`${a} ${u[a]}`);
+  const src=Object.entries(s).map(([k,v])=>`${k} ${v}`).join(' / ');
+  return `本次轨迹的臂使用：${parts.join('，')}　|　谁定的：${src}`;
+}
+
+/* ---------- case list ---------- */
+let selected=null, filter='all';
+const FILTERS=[['all','全部'],['multi','多跳'],['noret','非检索'],['agent','agent 选臂'],
+  ['multiarm','一步多臂'],['gate','闸门重写'],['noj','判官非沉浸'],['fallback','契约 fallback']];
+function caseFlags(c){
+  return {
+    multi:(c.reasoning_types||[]).includes('dependent-retrieval'),
+    noret:c.expected_route!=='Retrieve',
+    agent:(c.steps||[]).some(s=>s.strategy_source==='agent'),
+    multiarm:new Set((c.steps||[]).map(s=>s.strategy)).size>1,
+    gate:(c.gate_path||'').includes('repaired'),
+    noj:c.judge_verdict&&c.judge_verdict!=='immersive',
+    fallback:(c.answer_path||'').includes('fallback'),
+  };
+}
+function renderList(){
+  const q=$('#q').value.trim().toLowerCase();
+  const host=$('#list'); host.innerHTML='';
+  DATA.cases.forEach(c=>{
+    const f=caseFlags(c);
+    if(filter!=='all'&&!f[filter]) return;
+    if(q&&!(c.id.toLowerCase().includes(q)||(c.query||'').toLowerCase().includes(q))) return;
+    const el=document.createElement('div');
+    el.className='case'+(selected===c.id?' on':'');
+    const arms=[...new Set((c.steps||[]).map(s=>s.strategy))];
+    el.innerHTML=`<div class="id">${esc(c.id)}</div>
+      <div class="sm">
+        <span class="badge b-dim">${esc(c.actual_route)}</span>
+        <span>${c.loop_rounds} 轮</span><span>${c.evidence} 条</span>
+        <span>${c.covered_groups}/${c.gold_groups} 组</span>
+        ${arms.slice(0,3).map(armChip).join('')}${arms.length>3?`<span class="badge b-dim">+${arms.length-3}</span>`:''}
+      </div>`;
+    el.onclick=()=>{selected=c.id;renderList();renderCase(c);};
+    host.appendChild(el);
+  });
+}
+
+/* ---------- case detail ---------- */
+function stepCard(s,idx){
+  // ChapterScope 的「范围为空」必须显式画出来：否则这一步看起来只是「选了个臂但没效果」，
+  // 而真实原因通常是它依赖的那一级没召回任何证据——降级要可见，不能静默。
+  const scope=s.strategy==='ChapterScope'
+    ? (s.chapter_scope_size>0?`<span class="badge b-warn">扩章节 ${s.chapter_scope_size}</span>`
+                             :'<span class="badge b-dim">扩章节 0 · 范围为空</span>')
+    : (s.chapter_scope_size>0?`<span class="badge b-warn">扩章节 ${s.chapter_scope_size}</span>`:'');
+  const dep=(s.depends_on||[]).length?`<span class="badge b-dim">依赖 ${esc(s.depends_on.join(','))}</span>`:'';
+  const facts=(s.required_facts||[]).length?`<span class="badge b-dim">待验事实 ${esc(s.required_facts.join('、'))}</span>`:'';
+  const q=esc(s.query).replace(/；另需：/g,'<span class="gap">；另需：</span>');
+  const evRows=(s.evidence||[]).map(e=>`<tr>
+      <td class="num">${e.score.toFixed(3)}</td>
+      <td class="num">${e.coverage.toFixed(3)}</td>
+      <td class="ev">${esc(e.text)}</td>
+      <td>${esc(e.speaker)}</td>
+      <td class="mono" style="color:var(--dim);font-size:11px">${esc(e.chapter)}</td>
+      <td>${e.exact?'<span class="badge b-ok">exact</span>':''}${esc(e.match_kind||'')}</td>
+    </tr>`).join('');
+  return `<div class="step" data-step="${idx}">
+    <div class="head">
+      <span class="rnd">R${s.round}</span>
+      <span class="badge b-dim">${esc(s.task_id||'-')}</span>
+      ${armChip(s.strategy)} ${srcChip(s.strategy_source)} ${scope} ${dep}
+      ${statusChip(s.status)}
+      <span class="kv">证据 <b>${s.evidence_count}</b></span>
+      <span class="bar" title="平均覆盖度 ${pct(s.coverage)}"><i style="width:${pct(s.coverage)}"></i></span>
+      <span class="kv">${pct(s.coverage)}</span>
+      <span class="badge ${s.sufficient?'b-ok':'b-warn'}">${s.sufficient?'够':'不足'}</span>
+      <span style="flex:1"></span><span class="kv">点开看证据</span>
+    </div>
+    <div class="body">
+      <div class="stepq">${q}</div>
+      <div class="kv" style="margin-top:5px">${esc(s.reason)} &nbsp; ${facts}</div>
+      ${evRows?`<table><thead><tr><th>score</th><th>cov</th><th>取证行（锚点）</th><th>说话人</th><th>章节</th><th>命中</th></tr></thead><tbody>${evRows}</tbody></table>`
+        :'<div class="note">这一步没有召回任何证据。</div>'}
+    </div>
+  </div>`;
+}
+function renderCase(c){
+  const host=$('#caseHost');
+  const steps=c.steps||[];
+  const plan=steps.filter(s=>s.strategy_source==='agent');
+  const gateRep=c.gate_path.includes('repaired');
+  const draftEqReply=(c.draft||'')===(c.reply||'');
+  host.innerHTML=`
+  <div class="panel" data-stage="0">
+    <h2><span class="n">0</span>${STAGES[0]}</h2>
+    <div class="q">${esc(c.query)}</div>
+    <div class="row" style="margin-top:9px">
+      <span class="kv">期望路由 <b>${esc(c.expected_route)}</b></span>
+      <span class="kv">实际路由 <b>${esc(c.actual_route)}</b></span>
+      ${statusChip(c.status)}
+      <span class="kv">推理类型 <b>${esc((c.reasoning_types||[]).join('、'))}</b></span>
+      <span class="kv">耗时 <b>${c.elapsed_ms} ms</b></span>
+    </div>
+  </div>
+
+  <div class="panel" data-stage="1">
+    <h2><span class="n">1</span>${STAGES[1]}</h2>
+    ${plan.length?`<div class="kv">agent 在规划阶段为 ${plan.length} 个子问题点名了召回通道；
+      未点名的步骤按轮次配置/服务默认臂回退。</div>
+      <table><thead><tr><th>轮</th><th>子任务</th><th>依赖</th><th>点名的臂</th><th>子问题</th></tr></thead><tbody>
+      ${plan.map(s=>`<tr><td class="num">R${s.round}</td><td>${esc(s.task_id)}</td>
+        <td>${esc((s.depends_on||[]).join(',')||'—')}</td><td>${armChip(s.strategy)}</td>
+        <td class="ev">${esc(s.query)}</td></tr>`).join('')}
+      </tbody></table>`
+      :'<div class="note">本次轨迹里 agent 没有点名任何臂——这一轮的臂全部来自默认。</div>'}
+  </div>
+
+  <div class="panel" data-stage="2">
+    <h2><span class="n">2</span>${STAGES[2]}<span class="kv">共 ${steps.length} 步 / ${c.query_count} 条不同查询</span></h2>
+    <div class="controls">
+      <button id="expandAll">展开全部证据</button>
+      <button id="collapseAll">收起</button>
+    </div>
+    ${steps.map(stepCard).join('')||'<div class="note">无检索步骤。</div>'}
+  </div>
+
+  <div class="panel" data-stage="3">
+    <h2><span class="n">3</span>${STAGES[3]}</h2>
+    <div class="row">
+      <span class="kv">证据条数 <b>${c.evidence}</b></span>
+      <span class="kv">金标事实组 <b>${c.covered_groups} / ${c.gold_groups}</b></span>
+      <span class="bar" style="width:140px"><i style="width:${c.gold_groups?pct(c.covered_groups/c.gold_groups):'0%'}"></i></span>
+    </div>
+    <div class="note">事实组覆盖是**确定性**口径（金标证据 id 有没有进上下文），不是判官给的；
+      它只说明「证据进来了」，不说明「答对了」。</div>
+  </div>
+
+  <div class="panel" data-stage="4">
+    <h2><span class="n">4</span>${STAGES[4]}</h2>
+    <div class="row">
+      <span class="badge ${c.gate_passed===false?'b-bad':'b-ok'}">${c.gate_passed===false?'未通过':'通过'}</span>
+      <span class="badge ${gateRep?'b-warn':'b-dim'}">路径 ${esc(c.gate_path||'-')}</span>
+      <span class="kv">违规类型 <b>${esc(c.gate_kinds||'-')}</b></span>
+    </div>
+    <div class="note">路径是闸门自己留下的：<code>critic-repaired</code> 表示评审层当场抓到并改写了草稿。
+      只看「通过」会把这件事读成「一次通过」。</div>
+  </div>
+
+  <div class="panel" data-stage="5">
+    <h2><span class="n">5</span>${STAGES[5]}</h2>
+    <div class="two">
+      <div><h3>起草稿（闸门之前，用户看不到）</h3><div class="txt">${esc(c.draft)||'<span class="note">（本轮不走 composer，无草稿）</span>'}</div></div>
+      <div><h3>最终答复（用户看到的）</h3><div class="txt">${esc(c.reply)}</div></div>
+    </div>
+    <div class="row" style="margin-top:9px">
+      <span class="kv">作答路径 <b>${esc(c.answer_path||'（非剧情回合）')}</b></span>
+      <span class="kv">校验问题 <b>${esc((c.answer_issues||[]).join('、')||'无')}</b></span>
+      ${draftEqReply?'<span class="badge b-dim">草稿即答复</span>':'<span class="badge b-warn">草稿被替换</span>'}
+    </div>
+    <div class="note">两版必须分开看：答复由闸门重写时，composer 的引用/数字校验描述的是**已作废的草稿**。</div>
+  </div>
+
+  <div class="panel" data-stage="6">
+    <h2><span class="n">6</span>${STAGES[6]}</h2>
+    <div class="row">
+      ${judgeChip(c.judge_verdict)}
+      <span class="kv">分数 <b>${c.judge_score.toFixed(3)}</b></span>
+    </div>
+    <div class="txt" style="margin-top:7px;color:var(--muted)">${esc(c.judge_reason)||'（无）'}</div>
+    <div class="note">判官只评沉浸式标准、上下文连贯、逻辑连贯，<b>不评事实有效性</b>。
+      因此「判官 immersive」与「事实组全齐」是两条独立的轴，可能给出相反结论。</div>
+  </div>`;
+  $('#expandAll').onclick=()=>{host.querySelectorAll('.step').forEach(s=>s.classList.add('open'));};
+  $('#collapseAll').onclick=()=>{host.querySelectorAll('.step').forEach(s=>s.classList.remove('open'));};
+  host.querySelectorAll('.step').forEach(s=>{
+    s.querySelector('.head').onclick=()=>s.classList.toggle('open');
+  });
+  const title=$('#casetitle'); if(title) title.textContent=`当前用例：${c.id}`;
+  applyStageVisibility(0);
+  host.scrollIntoView({block:'start'});
+}
+
+/* ---------- stage-by-stage playback ---------- */
+let stageTimer=null, stageShown=-1;
+function applyStageVisibility(upto){
+  document.querySelectorAll('#caseHost .panel').forEach(p=>{
+    const s=Number(p.dataset.stage);
+    p.classList.toggle('hidden', s>upto);
+  });
+  stageShown=upto;
+}
+function play(){
+  const panels=[...document.querySelectorAll('#caseHost .panel')];
+  if(!panels.length) return;
+  clearInterval(stageTimer); applyStageVisibility(-1);
+  let i=0;
+  $('#play').disabled=true; $('#play').textContent='播放中…';
+  stageTimer=setInterval(()=>{
+    if(i>=panels.length){
+      clearInterval(stageTimer); applyStageVisibility(panels.length-1);
+      $('#play').disabled=false; $('#play').textContent='▶ 重放召回链路';
+      return;
+    }
+    applyStageVisibility(i);
+    panels[i].classList.remove('flash'); void panels[i].offsetWidth; panels[i].classList.add('flash');
+    panels[i].scrollIntoView({block:'center',behavior:'smooth'});
+    i++;
+  }, 800);
+}
+
+/* ---------- boot ---------- */
+function boot(){
+  renderHeader();
+  const f=$('#filters');
+  f.innerHTML=FILTERS.map(([k,label])=>`<span class="chip${k==='all'?' on':''}" data-k="${k}">${label}</span>`).join('');
+  f.onclick=e=>{
+    const chip=e.target.closest('.chip'); if(!chip) return;
+    filter=chip.dataset.k;
+    [...f.children].forEach(x=>x.classList.toggle('on',x===chip));
+    renderList();
+  };
+  $('#q').oninput=renderList;
+  const bar=document.createElement('div');
+  bar.className='controls';
+  bar.innerHTML=`<button class="primary" id="play">▶ 重放召回链路</button>
+    <button id="all">全部展开</button>
+    <span class="kv" id="casetitle"></span>`;
+  $('#caseHost').before(bar);
+  $('#play').onclick=play;
+  $('#all').onclick=()=>applyStageVisibility(99);
+  renderList();
+  if(DATA.cases.length){
+    const first=DATA.cases.find(c=>(c.steps||[]).some(s=>s.strategy_source==='agent'))||DATA.cases[0];
+    selected=first.id; renderList(); renderCase(first);
+  }
+}
+boot();
+</script>
+</body>
+</html>

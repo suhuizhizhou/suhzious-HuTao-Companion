@@ -22,8 +22,8 @@
 ## 验证（不运行模型/播放器/GPU）
 
 ```powershell
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --conversation-checks
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --speech-checks
+dotnet run --project tests/HuTao.StoryRag.Eval -- --conversation-checks
+dotnet run --project tests/HuTao.StoryRag.Eval -- --speech-checks
 ```
 
 使用虚拟时钟验证冷却，用受控离线 LLM 验证并发串行化和主动不重答，用临时日志验证诊断字段。没有启动桌宠实机推理，以免影响后台训练；运行中的旧桌宠需下次手动重启才载入新构建。

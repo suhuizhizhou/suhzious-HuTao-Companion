@@ -7,13 +7,13 @@
 ## 1. 阅读顺序
 
 1. 先读本页的数据流和数据结构。
-2. 打开 agent/src/HuTao.Agent.Core/Rag/StoryRagModels.cs 看契约，再读 StoryRagService.cs 看流程。
+2. 打开 src/HuTao.Knowledge/Rag/StoryRagModels.cs 看契约，再读 StoryRagService.cs 看流程。
 3. 读 StoryQueryAnalyzer.cs、StoryLineIndex.cs，理解为什么一个问句会命中某段。
 4. 读 StoryAnswerComposer.cs，区分“有引用”和“事实真的正确”。
 5. 跟着[评测入口](../evaluation/story-rag/README.md)跑自己的问题，看逐题 JSON。
 6. 最后读[测试规范和人工评分表](story-rag-benchmark.md)，了解哪些能力尚未经过真实模型验收。
 
-下文 C# 文件均位于 agent/src/HuTao.Agent.Core。
+下文 C# 文件均位于 src。
 
 ## 2. 整体结构
 
@@ -214,9 +214,9 @@ StorySufficiencyPolicy 专门降低已知资料盲区的确定性：当前准确
 ### 默认轻量模式
 
 ~~~powershell
-dotnet build agent/src/HuTao.Pet/HuTao.Pet.csproj --no-restore -m:1 -p:UseSharedCompilation=false
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --strict
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --query "你现在还想硬埋七七吗？"
+dotnet build hosts/HuTao.Pet/HuTao.Pet.csproj --no-restore -m:1 -p:UseSharedCompilation=false
+dotnet run --project tests/HuTao.StoryRag.Eval -- --strict
+dotnet run --project tests/HuTao.StoryRag.Eval -- --query "你现在还想硬埋七七吗？"
 ~~~
 
 查询输出 Plan、Status、锚点、全文窗口、来源、分数与 Trace。先看 route，再看 evidence，不只看最终回复。
@@ -226,7 +226,7 @@ dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --query "你现在还想
 依赖 torch、transformers、numpy、safetensors，不需要 LangChain。验证环境使用 Torch 2.3.0、Transformers 4.51.3。BGE small 中文 v1.5：512 维，CLS + L2；查询加中文检索前缀，文档不加。
 
 ~~~powershell
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --export .tmp/story-semantic-corpus.jsonl
+dotnet run --project tests/HuTao.StoryRag.Eval -- --export .tmp/story-semantic-corpus.jsonl
 voice/.venv/Scripts/python.exe scripts/story_semantic_service.py build --input .tmp/story-semantic-corpus.jsonl --output .tmp/story-dense-v1 --device cuda --batch-size 64
 voice/.venv/Scripts/python.exe scripts/story_semantic_service.py serve --index .tmp/story-dense-v1 --device cpu
 ~~~
@@ -237,8 +237,8 @@ voice/.venv/Scripts/python.exe scripts/story_semantic_service.py serve --index .
 
 ~~~powershell
 $env:HU_TAO_STORY_SEMANTIC_URL = "http://127.0.0.1:9891/"
-dotnet run --project agent/src/HuTao.Pet
-dotnet run --project agent/tools/HuTao.StoryRag.Eval -- --semantic http://127.0.0.1:9891/ --out evaluation/story-rag/results/hybrid --strict
+dotnet run --project hosts/HuTao.Pet
+dotnet run --project tests/HuTao.StoryRag.Eval -- --semantic http://127.0.0.1:9891/ --out evaluation/story-rag/results/hybrid --strict
 ~~~
 
 也可写入自己的 .env，已运行的桌宠需重启。测试进程不会替你永久设置配置，也不自动启动/托管模型服务。

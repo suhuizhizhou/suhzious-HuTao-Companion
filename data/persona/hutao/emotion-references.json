@@ -37,10 +37,6 @@
         {
           "audio": "../../voice/hutao/wav/4199ac78f23d82be.wav",
           "text": "哦哦，对哦，忘记说了，哈哈，但是无所谓吧。"
-        },
-        {
-          "audio": "../../voice/hutao/wav/7dda0f32efe522a2.wav",
-          "text": "突然来找我，怎么怎么？想我了吗？"
         }
       ]
     },
@@ -114,10 +110,6 @@
       "speed_factor": 0.88,
       "temperature": 0.48,
       "references": [
-        {
-          "audio": "../../voice/hutao/wav/cf57a72eb3b746ab.wav",
-          "text": "要是不急着出发，那就在这里多休息一会儿。"
-        },
         {
           "audio": "../../voice/hutao/wav/25e2194768dcde34.wav",
           "text": "俗话说得好，猫咪睡觉老鼠闹，醒来一样全吃掉。"

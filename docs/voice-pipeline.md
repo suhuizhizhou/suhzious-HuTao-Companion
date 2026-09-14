@@ -14,6 +14,37 @@
 | GPU | NVIDIA + CUDA（推荐 ≥8GB 显存）；纯 CPU 可跑但慢，不适合"实时" |
 | FFmpeg | 需在 PATH 中（音频解码/编码用） |
 | 磁盘 | 预训练模型约 3–5GB |
+| **NLTK 数据包** | **必须装**，见下 |
+
+### NLTK 数据包（很容易漏，且报错很晚）
+
+GPT-SoVITS 的英文前端用 NLTK 做词性标注。**没装数据包时，任何含英文的文本**
+（哪怕只是目标台词里夹了一个英文词）都会在推理阶段抛 `LookupError`，
+而失败会被上层吞成「这一句没有语音」——界面上只表现为**莫名其妙的静默失声**，
+完全看不出跟英文/NLTK 有关。实测就是被这个坑掉的：
+
+```text
+LookupError: Resource 'averaged_perceptron_tagger_eng' not found.
+```
+
+装齐这四个（nltk 3.9+ 起资源名带 `_eng` 后缀，老教程里的
+`averaged_perceptron_tagger` 是不够的）：
+
+```powershell
+voice\.venv\Scripts\python.exe -c "import nltk; [nltk.download(p) for p in ['averaged_perceptron_tagger_eng','cmudict','punkt','punkt_tab']]"
+```
+
+装完可以用一句话自检（应当不抛异常）：
+
+```powershell
+voice\.venv\Scripts\python.exe -c "import nltk; nltk.pos_tag(['hello'])"
+```
+
+> **与参考音频长度的坑要分清**：两者都表现为「这句没语音」，但原因和修法完全不同。
+> 参考音频越界会在 stderr 里看到`参考音频在3~10秒范围外`；
+> NLTK 缺失会看到 `Resource '...' not found`。**排查这类问题必须去看
+> `%LOCALAPPDATA%\HuTaoCompanion\logs\runtime.log` 的 `speech.full_turn` 条目**，
+> 光看界面永远猜不到。
 
 ## 2. 获取 GPT-SoVITS v3
 
@@ -35,9 +66,14 @@ python -m venv .venv
 few-shot 只需**参考音频 + 参考音频对应文本**，无需微调。挑选原则：
 
 - 无 BGM、无混响、单人、清晰；
-- 每条 **3–10 秒**为宜；
+- 每条 **3–10 秒**——这不是建议而是 **GPT-SoVITS 的硬性校验**：
+  越界时 `inference_webui.py` 直接 `raise OSError("参考音频在3~10秒范围外，请更换！")`。
+  `EmotionReferenceCatalog` 会在挑参考音频时主动滤掉越界项，
+  `tools/nte` 自动挑情感参考时也按 3~9.5 秒选，但**手工往 `emotion-references.json`
+  里加音频时仍要自己守住这条**；
 - **覆盖不同情绪/语气**（活泼、认真、俏皮……），提升音色与语气还原；
-- 每条都有**准确文字标签**（即 prompt text）。
+- 每条都有**准确文字标签**（即 prompt text），且标签里不能混 UE 富文本标记
+  （`<TypingTitle ...>` 之类）——标签与实际发音对不上会直接拉低克隆质量。
 
 使用 `scripts/prepare_dataset.py` 从 `data/voice/` 的 manifest 生成 GPT-SoVITS 可用的参考音频清单。
 
