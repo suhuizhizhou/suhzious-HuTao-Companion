@@ -44,7 +44,16 @@ public sealed record CharacterDefinition(
     /// 这个角色额外要挂的 CLI 工具（白名单）。默认空 = 一个都不挂。
     /// 外部程序可能改文件/发请求，所以必须由角色包显式声明，不能由模型自行选择。
     /// </summary>
-    IReadOnlyList<CliToolDefinition>? CliTools = null);
+    IReadOnlyList<CliToolDefinition>? CliTools = null,
+    /// <summary>
+    /// **全局默认角色**。全项目只允许有一个为 true（由结构检查钉住）。
+    ///
+    /// 它的含义是：任何「不知道该用哪个角色」的地方（默认人设目录、缺省主题、
+    /// 找不到角色时的兜底文案）都退到它，而不是各自在代码里写死一个名字。
+    /// 目前是胡桃——这是产品定位，不是技术债；但必须是**显式声明**，
+    /// 不能靠 `switch` 的 `_ =>` 分支隐式承担（那样每加一个角色都会静默继承胡桃的口吻）。
+    /// </summary>
+    bool IsGlobalDefault = false);
 
 /// <summary>
 /// 角色包里的一个 CLI 工具声明。

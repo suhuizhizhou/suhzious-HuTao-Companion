@@ -91,11 +91,10 @@ else
 // 只要各自装配出 IAgentConversation 就能同场对话。
 // 异环角色的人设包与语音全部由 tools/nte 提取，与桌宠既有规范一致。
 Console.WriteLine("\n========== 演示 5：聊天室（跨作品）==========");
-var chatCharacters = new[]
-    {
-        CharacterCatalog.Find("hutao"),
-        CharacterCatalog.Find("lacrimosa"),
-    }
+// 默认阵容从注册表读（唯一声明处 = CharacterCatalog.DefaultCastIds），
+// 不再与 WPF 各维护一份写死的 id 列表。
+var chatCharacters = CharacterCatalog.DefaultCastIds
+    .Select(CharacterCatalog.Find)
     .Where(c => c is not null).Select(c => c!).ToArray();
 if (chatCharacters.Length < 2)
     chatCharacters = CharacterCatalog.All.Take(2).ToArray();

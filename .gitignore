@@ -38,8 +38,7 @@ data/important_memories*.json
 data/memory_*.json
 data/memory_*.archive.jsonl
 data/important_memories*.json
-# 异环(NTE) 提取产物：全是从游戏解出的受版权资源（模型/语音/剧情/人设包），
-# 由 tools/nte 生成，体积上百 MB，绝不可入库、不可分发。
+# 异环(NTE) 提取产物（模型/语音/剧情/人设包），绝不入库
 data/nte/
 data/reading/
 .env
@@ -54,7 +53,7 @@ data/persona/TextMapCHS.json
 # ── 下载的工具与中间产物 ──
 /tools/
 
-# ── 个人笔记（写给自己看的，不公开）──
+# ── 个人笔记，不公开──
 notes/
 
 # ── 构建产物 ──
@@ -75,22 +74,26 @@ publish/
 
 # ── 日志与缓存 ──
 *.log
-# 例外：可读后端日志的**样本**是文档（格式说明 + 一份真实回合），不是运行产物。
-!docs/backend-trace-sample.log
 .DS_Store
 Thumbs.db
 
 # ── 生成物：召回链路演示页 ──
-# 由 scripts/build-recall-demo.py 从评测报告生成（约 800KB，内嵌数据）。
-# 生成物不入库，仓库里保留生成器与模板；重新生成见 README「开发与评测工具」。
 docs/recall-chain-demo.html
+
+# ── 剧情语料，不入库 ──
+# 详见 NOTICE.md。
+data/story/dialogue/
+data/story/character/
+data/story/index.json
+data/story/chapters.jsonl
+data/story/coverage.json
 
 # ── Story RAG 产物 ──
 # 保留 benchmark、来源记录、人工汇总
 data/story/semantic/
-evaluation/story-rag/results/
+evaluation/story-rag/results/*
 !evaluation/story-rag/results/semantic-smoke.json
 !evaluation/story-rag/results/summary.md
 
-# ── SDK / NuGet 本地缓存（原 agent/ 下，已移到 .cache/）──
+# ── SDK / NuGet 本地缓存 ──
 .cache/
