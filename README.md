@@ -3,6 +3,7 @@
 一个会**用胡桃的声音主动跟你说话**的 AI 桌宠：使用《原神》角色「胡桃」的声线，扮演她的人设，以 ReAct Agent 的方式感知你在做什么，站在桌面上随时跟你搭话。
 
 > 仅限个人学习与技术演示。胡桃形象、声线、台词版权归米哈游（miHoYo / HoYoverse）。
+> 作者原创代码以 [MIT](LICENSE) 授权；游戏素材不在授权范围内，详见 [NOTICE.md](NOTICE.md)。
 
 ## 已实现功能
 
@@ -18,6 +19,10 @@
 - **多角色**：胡桃、芙宁娜、可莉（原神）+ 安魂曲（异环）。异环角色的人设、剧情语料与原声由独立的 C# 提取工具链从本机游戏资源生成，产出规范与桌宠完全一致
 
 剧情服务的源码阅读路线、数据结构、算法和启动方式见 [Story RAG 白盒文档](docs/story-rag.md)；[测试规范](docs/story-rag-benchmark.md)区分离线检索指标与真实回答/角色自然度，运行入口见 [评测说明](evaluation/story-rag/README.md)。
+
+## 演示
+
+<video src="./demo.mp4" controls width="720"></video>
 
 ## 技术栈
 
@@ -52,6 +57,8 @@
 ```text
 hutao-companion/
 ├── HuTao.Companion.sln         # 解决方案（9 个项目，0 警告 0 错误）
+├── LICENSE                     # MIT（仅覆盖原创代码与文档）
+├── NOTICE.md                   # 素材版权与第三方组件声明
 ├── src/                        # 六个库，按依赖方向分层（只能向下引用）
 │   ├── HuTao.Foundation/       # 抽象、诊断日志、可读后端日志
 │   ├── HuTao.Bridge/           # C# ↔ Python 桥接
@@ -65,7 +72,7 @@ hutao-companion/
 ├── tests/HuTao.StoryRag.Eval/  # 评测：结构检查 + 离线指标 + 在线回放
 ├── data/
 │   ├── persona/                # 胡桃、芙宁娜、可莉……人设 Skill 与词表
-│   ├── story/                  # 剧情语料与索引
+│   ├── story/                  # 剧情语料（不入库，需本地导入）与手写词表
 │   └── voice/                  # 语音数据（.gitignore，需自行提取，见下）
 ├── voice/
 │   ├── infer/few_shot_infer.py   # GPT-SoVITS 按需推理脚本
@@ -102,7 +109,20 @@ GPT-SoVITS 依赖与 v3 预训练模型下载，详见 [`docs/voice-pipeline.md`
 
 `data/voice/hutao/` 需要放胡桃的 wav + `manifest.jsonl`（台词标签）。获取方式见 [`docs/voice-pipeline.md`](docs/voice-pipeline.md) 与 [`scripts/extract_pck.mjs`](scripts/extract_pck.mjs)。仓库内已附标签格式示例 [`data/voice/labels/manifest.example.jsonl`](data/voice/labels/manifest.example.jsonl)。
 
-### 3. 配置密钥
+### 3. 导入剧情语料（可选；不导入则剧情问答与评测不可用）
+
+剧情语料是**从游戏解包**的受版权文本，**不入库**（见 [`NOTICE.md`](NOTICE.md)）。脚本需要本机已有对应的原始 TextMap 与公开档案，按顺序执行：
+
+```powershell
+python scripts/import_story_corpus.py      # 章节与角色资料
+python scripts/build_story_index.py        # 章节摘要索引（检索依赖）
+python scripts/import_story_dialogues.py   # 逐句对话语料
+python scripts/import_story_pages.py       # 补充页面语料
+```
+
+产物写入 `data/story/`（其中 `data/story/lexicon.json` 是作者手写的词表，仓库已附带）。不导入也能正常聊天、记忆与语音，只是剧情 RAG 会走 Bypass。完整说明与数据来源见 [`docs/story-rag.md`](docs/story-rag.md)。
+
+### 4. 配置密钥
 
 复制 `.env.example` 为 `.env`，填入：
 
@@ -121,7 +141,7 @@ DEEPSEEK_API_KEY=sk-你的key
 # HU_TAO_IMMERSION_CRITIC=false
 ```
 
-### 4. 构建并运行桌宠
+### 5. 构建并运行桌宠
 
 ```powershell
 .\scripts\build-agent.ps1   # 构建整个解决方案
@@ -161,7 +181,7 @@ Core 的分层边界和文档朗读扩展点见 [`docs/architecture.md`](docs/ar
 - **可读后端日志**（`BackendTrace`，默认开启）：agent + RAG 一轮到底做了什么——输入、检索编排与选中的臂、每次 RAG 调用的证据（含原文与分数）、证据池缺口、作答路径、沉浸闸门、最终答复、各阶段耗时。路径 `%LOCALAPPDATA%\HuTaoCompanion\logs\backend-trace.log`（宿主启动会打印），`HU_TAO_TRACE=off` 可关；格式见 [`docs/backend-trace-sample.log`](docs/backend-trace-sample.log)。
 - **评测报告**：`--agent-live` / `--react-live` 会在输出目录落一份自描述的 `report.json`（含逐例轨迹、分层指标、判官结论），并记下可读日志的位置。
 
-### 5. 构建本地 Release
+### 6. 构建本地 Release
 
 ```powershell
 .\scripts\build_release.ps1
@@ -190,6 +210,11 @@ Core 的分层边界和文档朗读扩展点见 [`docs/architecture.md`](docs/ar
 | [`docs/voice-pipeline.md`](docs/voice-pipeline.md) | 声线克隆管线实操 |
 | [`docs/persona-skill.md`](docs/persona-skill.md) | 人设 skill 提取规格 |
 
-## 合规声明
+## 许可与合规
 
-本项目仅用于**个人学习与技术演示**，不用于任何商业用途。胡桃的角色形象、配音、台词文本版权归米哈游（miHoYo/HoYoverse）所有。请勿传播、售卖或商业利用从游戏中提取的音频、模型权重及衍生内容。
+- **代码**：作者原创的源码、脚本与文档以 [MIT](LICENSE) 授权。
+- **素材**：游戏角色形象、台词文本、剧情语料、语音音频及其衍生内容**不在 MIT 授权范围内**，权利归米哈游（miHoYo / HoYoverse）、完美世界等相关权利人所有，详见 [NOTICE.md](NOTICE.md)。
+
+本仓库**不收录**从游戏解包的语料、语音与模型权重（见 [`.gitignore`](.gitignore)）：剧情语料由脚本从本机游戏资源生成，语音数据需自行提取，做法见 [docs/story-rag.md](docs/story-rag.md) 与 [docs/voice-pipeline.md](docs/voice-pipeline.md)。
+
+本项目仅用于**个人学习与技术演示**，不用于任何商业用途。请勿传播、售卖或商业利用从游戏中提取的音频、模型权重及衍生内容；若在本地生成并使用受版权保护的素材，请自行确认所在地区的合规要求。

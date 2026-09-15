@@ -21,7 +21,9 @@ public static class CharacterCatalog
             // 参考音频在原声目录里（data/voice/hutao/）
             VoiceDirectory: null,
             // 「记住…/提醒我…」彩蛋。原来是 Id=="hutao" 硬编码，现在由角色包声明。
-            ImportantMemoryFile: "data/important_memories_hutao.json"),
+            ImportantMemoryFile: "data/important_memories_hutao.json",
+            // 全项目唯一的全局默认：缺省人设、缺省主题、找不到角色时的兜底都退到它。
+            IsGlobalDefault: true),
         new(
             "furina", "芙宁娜", "枫丹水神", "💧",
             "data/persona/furina",
@@ -64,9 +66,33 @@ public static class CharacterCatalog
 
     public static IReadOnlyList<CharacterDefinition> All => Definitions;
 
+    /// <summary>
+    /// 全局默认角色（<see cref="CharacterDefinition.IsGlobalDefault"/>）。
+    /// 定义表里必须恰好有一个；一个都没有时退回第一条并**不抛异常**——
+    /// 「没有默认」不该让桌宠启动不了，但结构检查会把这种情况判红。
+    /// </summary>
+    public static CharacterDefinition Default
+        => Definitions.FirstOrDefault(character => character.IsGlobalDefault) ?? Definitions[0];
+
+    /// <summary>
+    /// 聊天室 / 演示的默认阵容。**这是唯一一处默认阵容声明**——
+    /// 以前 WPF 与 Host 各写一份 `{"hutao","lacrimosa"}`，加角色时两处都要改，漏一处就静默不同步。
+    /// 名字对不上（拼错/角色被删）时由调用方按「取不到就跳过」处理。
+    /// </summary>
+    public static IReadOnlyList<string> DefaultCastIds => ["hutao", "lacrimosa"];
+
     public static CharacterDefinition? Find(string? id)
         => Definitions.FirstOrDefault(character =>
             string.Equals(character.Id, id?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// 按**显示名**找角色（「胡桃」「安魂曲」…）。
+    /// 给只有人设名、拿不到 id 的调用方用（例如 ReactAgent 里的兜底台词查找）：
+    /// 这样它们就不必再写 `Name == "…"` 的角色特判。
+    /// </summary>
+    public static CharacterDefinition? FindByName(string? name)
+        => Definitions.FirstOrDefault(character =>
+            string.Equals(character.Name, name?.Trim(), StringComparison.Ordinal));
 
     public static CharacterDefinition Get(string id)
         => Find(id) ?? throw new KeyNotFoundException($"未注册角色: {id}");
