@@ -22,6 +22,8 @@
 
 ## 演示
 
+https://github.com/user-attachments/assets/453c0500-b759-4a6d-9b4e-e7c764567006
+
 <video src="./demo.mp4" controls width="720"></video>
 
 ## 技术栈

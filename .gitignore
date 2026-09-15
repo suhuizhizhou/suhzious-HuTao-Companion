@@ -1,4 +1,4 @@
-# ── Python / 深度学习 ──
+# ── Python ──
 __pycache__/
 *.py[cod]
 .venv/
@@ -71,6 +71,7 @@ publish/
 *.nupkg
 *.snupkg
 *.user
+demo.mp4
 
 # ── 日志与缓存 ──
 *.log
