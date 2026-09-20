@@ -115,7 +115,8 @@ public partial class MainWindow : Window
                 _repoRoot,
                 preferResident: true,
                 log: Console.WriteLine),
-            Console.WriteLine);
+            Console.WriteLine,
+            approveTool: ConfirmToolAsync);
         // 前台感知默认开启（桌宠要陪伴就得知道你在忙什么）；显式设成 false/0/no 才关闭。
         _allowAppAwareness = ReadBooleanEnvironment("HU_TAO_ALLOW_APP_AWARENESS", defaultValue: true);
         UpdateAwarenessButton();
@@ -123,7 +124,7 @@ public partial class MainWindow : Window
 
         // 主动调度器（只启动一次）
         _scheduler = new ProactiveScheduler(
-            intervalSeconds: 60, cooldownSeconds: 120, minIdleSeconds: 30);
+            intervalSeconds: 600, cooldownSeconds: 1200, minIdleSeconds: 300);
         // 调度回调回到 UI 线程，与 Send/角色切换共享同一个说话门，避免 bool 跨线程竞态。
         _ = _scheduler.RunLoopAsync(ct => Dispatcher.InvokeAsync(async () =>
         {

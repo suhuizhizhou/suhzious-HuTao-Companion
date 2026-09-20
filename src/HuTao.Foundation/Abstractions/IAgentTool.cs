@@ -1,5 +1,7 @@
 ﻿namespace HuTao.Foundation.Abstractions;
 
+public enum AgentToolCategory { Observation, ComputeOrRead, SideEffect }
+
 public enum AgentToolEffect
 {
     ReadOnly,
@@ -14,12 +16,15 @@ public enum AgentToolSensitivity
     ScreenContent,
 }
 
-/// <summary>工具的执行边界，供未来审批、并行调度和 MCP/Function schema 使用。</summary>
+/// <summary>Execution boundaries enforced by the shared tool gate.</summary>
 public sealed record AgentToolPolicy(
     AgentToolEffect Effect = AgentToolEffect.ReadOnly,
     AgentToolSensitivity Sensitivity = AgentToolSensitivity.None,
     bool RequiresExplicitIntent = false,
-    bool CanRunInParallel = true);
+    bool CanRunInParallel = true,
+    bool RequiresConfirmation = false,
+    int TimeoutSeconds = 15,
+    int MaxOutputCharacters = 4000);
 
 /// <summary>
 /// Agent 可调用的工具。对应 ReAct 里的 Observe 环节：
@@ -36,6 +41,15 @@ public interface IAgentTool
 
     /// <summary>默认是无敏感数据的只读工具；高风险实现必须显式覆盖。</summary>
     AgentToolPolicy Policy => new();
+
+    AgentToolCategory Category => Policy.Effect == AgentToolEffect.ReadOnly
+        ? AgentToolCategory.ComputeOrRead : AgentToolCategory.SideEffect;
+    ToolInputSchema InputSchema => ToolInputSchema.Legacy;
+    bool UsesJsonArguments => false;
+
+    /// <summary>Pure preflight validation before approval or execution.</summary>
+    string? ValidateArguments(System.Text.Json.JsonElement arguments) => null;
+    string DescribeAction(System.Text.Json.JsonElement arguments) => Description;
 
     /// <summary>执行工具，返回一段可读的结果文本。</summary>
     Task<string> ExecuteAsync(string? input = null, CancellationToken ct = default);

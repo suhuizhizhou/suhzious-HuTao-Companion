@@ -123,10 +123,10 @@ public sealed class ReactRetrievalLoop
     public async Task<ReactRetrievalResult?> RunAsync(
         string input,
         IReadOnlyList<ChatMessage> history,
-        CancellationToken ct = default)
+        CancellationToken ct = default, IReadOnlyList<ReactSubTask>? plannedTasks = null)
     {
         if (string.IsNullOrWhiteSpace(input)) return null;
-        var tasks = await PlanAsync(input, history, ct).ConfigureAwait(false);
+        var tasks = plannedTasks?.ToList() ?? await PlanAsync(input, history, ct).ConfigureAwait(false);
         // 规划结果写进当前回合的追踪日志（如果有回合在跑）。
         // 这一段是「agent 的决策」与「RAG 的执行」之间的接缝：先看到 agent 点了哪个臂、谁依赖谁，
         // 紧接着才是那次调用的真实结果，因果关系不必靠事后反推。
@@ -176,22 +176,12 @@ public sealed class ReactRetrievalLoop
             if (ready.Length == 0) ready = tasks.Where(t => !completed.Contains(t.Id)).Take(1).ToArray();
             if (ready.Length == 0)
             {
-                // 任务已跑完。**这里曾是循环的终止条件，那是个缺口**：
-                // 实测（在线 --react-live）3 例里有 2 例 suff=False 却只跑了 1 轮——
-                // planner 只给 1 个任务时，证据不足也不会再检索，「多级多次查询」根本没发生。
-                // 改为按**证据是否足够**决定：
-                //   · 全部轮次都足够 → 收工；
-                //   · 还有不足 → 用后续轮的臂再检索一次原始问题（≤ MaxRounds 轮，成本有上界）。
-                // 停止条件必须看**最近一轮**，不能用 steps.All(...)：
-                // 首轮的 suff=False 会永远留在 steps 里，All() 再也无法成立，
-                // 循环只能撞到 MaxRounds 才停，途中把同一句查询重复发 6 次。
-                // **这两个缺陷都只有放进真实 ReAct 环境实测才暴露**（离线结构检查看不到）。
-                // 再加一个追加上限：同一条问题最多追加 MaxRepairRounds 轮，重复问不会带来新证据。
+                // 同一条问题最多追加 MaxRepairRounds 轮，重复问不会带来新证据。
                 var followUps = tasks.Count(t => t.Id.StartsWith("gap", StringComparison.Ordinal));
-                if (steps.Count == 0 || steps[^1].Sufficient) break;
+                if (steps.Count == 0 || steps[^1].Sufficient ||
+                    steps[^1].Status is StoryStatus.Bypass or StoryStatus.Comfort or StoryStatus.Playful or StoryStatus.Boundary or StoryStatus.Clarify) break;
                 if (!_options.EnableGapFollowUp || followUps >= _options.MaxRepairRounds) break;
                 // 连续两轮发同一句查询 → 不会有新证据（服务端还会命中缓存），立刻停。
-                // 在线实测：pets-sides 曾把同一句发 3 次、覆盖率一模一样，纯烧调用。
                 if (steps.Count >= 2 && string.Equals(steps[^1].Query, steps[^2].Query, StringComparison.Ordinal)) break;
                 var followUp = new ReactSubTask($"gap{round + 1}", input, [], []);
                 tasks.Add(followUp);
@@ -208,9 +198,7 @@ public sealed class ReactRetrievalLoop
             //   1. **agent 点名**（planner 给这个子任务填了 strategy）——这是自主性的落点；
             //   2. 轮次配置（FirstRoundStrategy / FollowUpStrategy）；
             //   3. 服务默认臂（`--strategy` / StoryRagOptions.Strategy）。
-            // 三层都留痕（StrategySource），否则在线报告里「agent 到底选没选」看不出来——
-            // 「填了个恰好等于默认值的臂」和「压根没填」是两件不同的事。
-            // 注意是**逐子任务**取臂，不是整轮一个：同一轮里两个子问题本就可能走不同通道。
+            // 注意是**逐子任务**取臂
             var roundStrategy = round == 0 ? _options.FirstRoundStrategy : _options.FollowUpStrategy;
             var arms = ready.Select(t => t.Strategy ?? roundStrategy).ToArray();
             var armSources = ready.Select(t => t.Strategy is not null ? "agent"
@@ -253,8 +241,11 @@ public sealed class ReactRetrievalLoop
         // 把**检索记忆里已持有的证据**并进池子。
         // 这是「利用之前查询的信息」的落点：上一轮（甚至上一次对话）已经拿到的东西，
         // 这一轮直接复用，而不是重新检索一遍——多级多次查询因此才有积累效应。
-        var held = _memory.HeldEvidence();
-        if (held.Count > 0)
+        var currentPlan = StoryQueryAnalyzer.Plan(input, _lexicon, history);
+        var held = currentPlan.IsFollowUp && currentPlan.Route == StoryRoute.Retrieve
+            ? _memory.HeldEvidence().Where(e => pool.Evidence.Any(p => p.Anchor.ChapterId == e.Anchor.ChapterId)).Take(5).ToArray()
+            : [];
+        if (held.Length > 0)
         {
             pool = pool with
             {
@@ -274,7 +265,7 @@ public sealed class ReactRetrievalLoop
     private async Task<List<ReactSubTask>> PlanAsync(string input, IReadOnlyList<ChatMessage> history, CancellationToken ct)
     {
         // 旁路/玩梗/安慰和纯原文引用不应消耗 Planner 调用；它们必须保持原有低延迟路径。
-        var route = StoryQueryAnalyzer.Plan(input, _lexicon).Route;
+        var route = StoryQueryAnalyzer.Plan(input, _lexicon, history).Route;
         var direct = route != StoryRoute.Retrieve ||
                      (input.Contains('“') && input.Contains('”') && input.Contains("原文", StringComparison.Ordinal));
         if (!direct && _options.EnableLlmPlanner && _llm is not null)

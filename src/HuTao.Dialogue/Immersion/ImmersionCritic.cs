@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using HuTao.Foundation.Abstractions;
@@ -207,9 +207,17 @@ public sealed class ImmersionCritic
         }
     }
 
-    /// <summary>把评审员的中文描述映射回违规分类，便于聚合统计和针对性修复。</summary>
+    /// <summary>
+    /// 把评审员的中文描述映射回违规分类，便于聚合统计和针对性修复。
+    ///
+    /// **顺序有讲究**：语气/风格类描述要放在最前面。评审员常写「语气像通用助手」，
+    /// 它同时命中下面的「助手」规则；旧顺序会把它判成 <see cref="ImmersionViolationKind.AiSelfReference"/>
+    /// （硬阻断），于是一句风格批评触发兜底。风格问题是软的，归 <see cref="ImmersionViolationKind.Tone"/>。
+    /// </summary>
     private static ImmersionViolationKind Classify(string problem)
     {
+        if (Regex.IsMatch(problem, @"语气|不像|风格|口吻|腔调|像旁白|像说明书|太正式|太生硬"))
+            return ImmersionViolationKind.Tone;
         if (Regex.IsMatch(problem, @"AI|模型|助手|程序|机器人"))
             return ImmersionViolationKind.AiSelfReference;
         if (Regex.IsMatch(problem, @"客服|客套|服务|礼貌用语|助手腔|说明书"))
@@ -222,8 +230,6 @@ public sealed class ImmersionCritic
             return ImmersionViolationKind.FormatLeak;
         if (Regex.IsMatch(problem, @"重复|复读|雷同|套路"))
             return ImmersionViolationKind.Repetition;
-        if (Regex.IsMatch(problem, @"语气|不像|角色|风格|口吻"))
-            return ImmersionViolationKind.AiSelfReference;
         return ImmersionViolationKind.Coherence;
     }
 

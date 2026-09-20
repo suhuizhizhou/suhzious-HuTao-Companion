@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,6 +10,16 @@ using HuTao.Dialogue.Tools;
 using HuTao.Dialogue.Llm;
 using HuTao.Persona;
 
+if (args.Length >= 3 && args[0] == "--tool-process-fixture")
+{
+    if (args[1] == "flood")
+    {
+        Console.Write(new string('x', 100000)); Console.Error.Write(new string('y', 100000)); return 0;
+    }
+    await File.WriteAllTextAsync(args[2], Environment.ProcessId.ToString());
+    await Task.Delay(Timeout.Infinite);
+    return 0;
+}
 var root = FindRoot(Environment.CurrentDirectory);
 var json = new JsonSerializerOptions
 {
@@ -20,6 +30,27 @@ var json = new JsonSerializerOptions
     Converters = { new JsonStringEnumConverter() }
 };
 string? Option(string name) => Array.IndexOf(args, name) is var i && i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+if (args.Contains("--tool-checks"))
+{
+    var toolChecks = await ToolChecks.RunAsync();
+    foreach (var check in toolChecks) Console.WriteLine($"{(check.Passed ? "PASS" : "FAIL")} {check.Name} {check.Detail}");
+    Console.WriteLine($"Tools: {toolChecks.Count(c => c.Passed)}/{toolChecks.Count}");
+    return toolChecks.All(c => c.Passed) ? 0 : 1;
+}
+if (args.Contains("--companion-live"))
+    return await CompanionLiveEvaluation.RunAsync(root,
+        Path.GetFullPath(Option("--out") ?? "evaluation/story-rag/results/companion-live"), json);
+if (args.Contains("--tool-live"))
+    return await ToolLiveEvaluation.RunAsync(root,
+        Path.GetFullPath(Option("--out") ?? "evaluation/story-rag/results/tool-live"), json);
+if (args.Contains("--recall-checks"))
+{
+    var recallChecks = await RecallChecks.RunAsync();
+    recallChecks.AddRange(await MemoryChecks.RunAsync());
+    foreach (var check in recallChecks) Console.WriteLine($"{(check.Passed ? "PASS" : "FAIL")} {check.Name} {check.Detail}");
+    Console.WriteLine($"Recall + memory: {recallChecks.Count(c => c.Passed)}/{recallChecks.Count}");
+    return recallChecks.All(c => c.Passed) ? 0 : 1;
+}
 if (args.Contains("--conversation-checks"))
 {
     var conversationChecks = await ConversationChecks.RunAsync();
@@ -822,7 +853,7 @@ internal sealed record AgentRow
 /// </summary>
 internal sealed record AgentSummary(int Count, double MeanRounds, double MeanQueries,
     double MultiRoundRate, double? FactGroupCoverage, double FactCompleteRate,
-    int GatePassed, int GateFailed, int GateCriticCaught, int GateBlocked,
+    int GatePassed, int GateFailed, int GateRetried, int GateBlocked,
     int Answered, int AnswerFallback,
     double MeanJudgeScore, double ImmersiveRate, int Immersive, int MinorBreak, int Broken, int JudgeFailed,
     double UnnecessaryRetrievalRate);
@@ -874,8 +905,10 @@ internal static class Metrics
             withGold.Length == 0 ? null : withGold.Sum(r => r.CoveredGroups) / (double)withGold.Sum(r => r.GoldGroups),
             withGold.Length == 0 ? 0 : withGold.Average(r => r.CoveredGroups >= r.GoldGroups ? 1d : 0),
             rows.Count(r => r.GatePassed == true), rows.Count(r => r.GatePassed == false),
-            // 「评审层当场抓到并重写」与「规则层一次通过」是完全不同的两件事，必须分开计。
-            rows.Count(r => r.GatePath.Contains("critic-repaired", StringComparison.Ordinal)),
+            // 「闸门当场拦下 → agent 带证据重做」与「一次通过」是完全不同的两件事，必须分开计。
+            // 判据是路径里出现重试标记（gen-retry-N / observe-retry-N）——
+            // 闸门自己不写台词了，所以不再有 "critic-repaired" 这种"闸门内重写"的路径。
+            rows.Count(r => r.GatePath.Contains("-retry-", StringComparison.Ordinal)),
             rows.Count(r => r.GatePath.Contains("blocked", StringComparison.Ordinal)),
             rows.Count(r => r.AnswerPath is "llm-validated-structure" or "direct-quote"),
             rows.Count(r => r.AnswerPath.Contains("fallback", StringComparison.Ordinal)),

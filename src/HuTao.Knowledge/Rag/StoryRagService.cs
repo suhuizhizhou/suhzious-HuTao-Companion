@@ -80,9 +80,25 @@ public sealed class StoryRagService : IStoryRagService
         CancellationToken ct = default, RetrievalStrategy? strategy = null,
         IReadOnlyList<string>? chapterScope = null)
     {
-        var result = await RetrieveCoreAsync(input, history, ct, strategy, chapterScope).ConfigureAwait(false);
-        if (BackendTrace.Default.Enabled)
+        var trace = BackendTrace.Default.Enabled ? new RetrievalTraceCollector() : null;
+        var result = await RetrieveCoreAsync(input, history, ct, strategy, chapterScope, trace).ConfigureAwait(false);
+        if (trace is not null)
         {
+            trace.Plan.Add($"检索文本 ▸ {StoryQueryAnalyzer.Normalize(result.Plan.SearchText)}");
+            trace.Plan.Add($"标记 ▸ 引号原文={result.Plan.IsQuote} · 自称={result.Plan.IsSelf} · 追问={result.Plan.IsFollowUp}");
+            if (result.Plan.Entities.Count > 0)
+                trace.Plan.Add($"实体 ▸ {string.Join('、', result.Plan.Entities)}");
+            if (!string.IsNullOrWhiteSpace(result.Plan.SelfName))
+                trace.Plan.Add($"自称锚点 ▸ {result.Plan.SelfName}");
+            // 变体分两类列全：原句变体（已过准入闸门）与概念扩展（同义词组）。
+            var variants = result.Plan.Variants
+                .Select(v => new RetrievalTraceVariant(v, "原句变体", true))
+                .Concat(StoryQueryAnalyzer.Expand(result.Plan, _lexicon)
+                    .Select(v => new RetrievalTraceVariant(v, "概念扩展", true)))
+                .ToArray();
+            var partsById = (trace.Ranking ?? [])
+                .GroupBy(c => c.Id, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Parts ?? [], StringComparer.Ordinal);
             BackendTrace.Default.Retrieval(new RetrievalTraceRecord(
                 input,
                 result.Plan.Route.ToString(),
@@ -93,17 +109,33 @@ public sealed class StoryRagService : IStoryRagService
                 result.Trace.CacheHit,
                 result.Trace.Candidates,
                 result.Trace.ElapsedMs,
-                result.Plan.Variants,
+                variants,
                 result.Evidence.Select(e => new RetrievalTraceEvidence(
                     e.Id, e.Anchor.Speaker, e.Anchor.Text, e.Score, e.Coverage,
-                    e.Anchor.ChapterId, e.Exact, e.MatchKind)).ToArray(),
-                result.Trace.Warnings));
+                    e.Anchor.ChapterId, e.Exact, e.MatchKind,
+                    // 上下文 = 模型真正读到的行；锚点单独标出，避免「只记锚点」把窗口邻行丢掉。
+                    e.Context.Concat([e.Anchor]).DistinctBy(l => l.EvidenceId)
+                        .OrderBy(l => l.Sequence).ThenBy(l => l.Variant)
+                        .Select(l => new RetrievalTraceContextLine(l.EvidenceId, l.Speaker, l.Text,
+                            string.Equals(l.EvidenceId, e.Id, StringComparison.Ordinal)))
+                        .ToArray(),
+                    partsById.TryGetValue(e.Id, out var parts) ? parts : null)).ToArray(),
+                result.Trace.Warnings,
+                trace.Plan,
+                trace.Channels,
+                trace.Ranking,
+                trace.Gates,
+                trace.Reselect,
+                trace.Budget,
+                trace.Sufficiency,
+                trace.Notes));
         }
         return result;
     }
 
     private async Task<StoryRagResult> RetrieveCoreAsync(string input, IReadOnlyList<ChatMessage>? history,
-        CancellationToken ct, RetrievalStrategy? strategy, IReadOnlyList<string>? chapterScope)
+        CancellationToken ct, RetrievalStrategy? strategy, IReadOnlyList<string>? chapterScope,
+        RetrievalTraceCollector? trace = null)
     {
         ct.ThrowIfCancellationRequested();
         var clock = Stopwatch.StartNew();
@@ -150,7 +182,7 @@ public sealed class StoryRagService : IStoryRagService
                 ? chapterScope
                 : summaries.Select(h => h.Document.Id).ToArray();
             var (evidence, count) = await Task.Run(() => index.Retrieve(plan, effective,
-                chapterHints, semanticHits, budget.Token), budget.Token).ConfigureAwait(false);
+                chapterHints, semanticHits, budget.Token, trace), budget.Token).ConfigureAwait(false);
             var selected = new List<StoryEvidence>();
             var characters = 0;
             var included = new HashSet<string>(StringComparer.Ordinal);
@@ -161,7 +193,15 @@ public sealed class StoryRagService : IStoryRagService
                 foreach (var line in new[] { e.Anchor }.Concat(e.Context).DistinctBy(l => l.EvidenceId))
                 {
                     var length = line.Text.Length + line.EvidenceId.Length + line.Speaker.Length + 80;
-                    if (!included.Contains(line.EvidenceId) && characters + length > _options.ContextCharacterBudget) continue;
+                    if (!included.Contains(line.EvidenceId) && characters + length > _options.ContextCharacterBudget)
+                    {
+                        // 预算裁剪**必须留痕**：被丢掉的行不会出现在任何「证据」清单里，
+                        // 而它很可能就是答案行——不记的话，日志会显示「证据里没有」，
+                        // 让人误以为检索没找到，实际是预算把它挤掉了。
+                        trace?.Budget.Add($"超预算丢掉 [{line.EvidenceId}] {line.Speaker}：{RetrievalTraceCollector.Shorten(line.Text, 40)}" +
+                            $"（已用 {characters}/{_options.ContextCharacterBudget} 字符）");
+                        continue;
+                    }
                     context.Add(line);
                     if (included.Add(line.EvidenceId)) characters += length;
                 }
@@ -182,6 +222,16 @@ public sealed class StoryRagService : IStoryRagService
                 status = StoryStatus.Clarify;
             var sufficiency = StorySufficiencyPolicy.Apply(plan, selected, status);
             status = sufficiency.Status;
+            if (trace is not null)
+            {
+                trace.Sufficiency.Add($"状态判定 ▸ Top1 分数 {selected.FirstOrDefault()?.Score ?? 0:F3} / 覆盖 {selected.FirstOrDefault()?.Coverage ?? 0:F3}" +
+                    $" · 阈值 AnswerScore={_options.AnswerScore:F2} MinAnswerCoverage={_options.MinAnswerCoverage:F2}" +
+                    $" → {status}");
+                trace.Sufficiency.Add(sufficiency.Caution is null
+                    ? "充分性策略 ▸ 未追加约束（通用门禁已足够）"
+                    : $"充分性策略 ▸ 追加约束：{sufficiency.Caution}");
+                trace.Sufficiency.Add($"上下文 ▸ {selected.Count} 条证据 / 已用 {characters} 字符 / 预算 {_options.ContextCharacterBudget}");
+            }
             if (sufficiency.Caution is not null) warnings.Add("证据边界：" + sufficiency.Caution);
             var result = new StoryRagResult(plan, status, selected.AsReadOnly(),
                 _summaries.FindByIds(selected.Select(e => e.Anchor.ChapterId)).Take(2).ToArray(),

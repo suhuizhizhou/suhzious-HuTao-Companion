@@ -18,12 +18,12 @@ AgentRuntimeFactory ── PersonaLoader / LLM / Tools / TTS
 
 `ReactAgent` 只维护对话历史并编排 ReAct 顺序，具体职责拆为：
 
-- `IToolObservationCollector`：工具执行与观察结果格式化，可继续增加并行、超时和审计；
+- `IToolObservationCollector`：将确定性路由或模型提出的请求交给 `ToolExecutor`，验证 Schema、活动、授权、确认和预算，并格式化结果；
 - `IAgentPromptBuilder`：集中拼装人设、沉浸约束、隐私、分层原声、RAG 和文档朗读约束；
 - `ISpeechSegmentParser`：解析隐藏情绪/原声标签，并执行原声严格校验；
 - `ICharacterSpeechSynthesizer`：选择情绪参考并调用 TTS；
 - `OriginalVoiceRetriever`：用整轮上下文做三路原声召回，产出候选但不做最终裁决；
-- `ImmersionGate`：两层出戏闸门，决定最终对用户可见的台词；
+- `ImmersionGate`：两层出戏闸门，**只判定与上报，不改写台词**（改写由本类带证据重做）；
 - `SpeechText`：统一 UI 与 Core 对括号动作的判定，保证动作不发声。
 
 ## 沉浸性与原声的边界
@@ -34,12 +34,24 @@ ReactAgent
    │      └── 只产出「候选」；能否播放由 SpeechSegmentParser 逐字校验裁决
    ├── MemoryRetriever ── ConversationMemoryStore ── MemoryBm25Index
    │      └── 只产出「召回片段」；写入与失效由 Store 负责，提炼由 Consolidator 负责
-   └── ImmersionGate
-          ├── ImmersionRuleGate   # 确定性、零延迟，机械性出戏
-          └── ImmersionCritic     # LLM 评审，语义性出戏与跨轮连贯（含长期记忆）
+   └── ImmersionGate                    # **只审查、不创作**
+          ├── ImmersionRuleGate         # 确定性、零延迟，机械性出戏
+          ├── TryLocalRepair            # 只做格式类确定性清理（零成本）
+          └── ImmersionCritic           # LLM 评审，语义性出戏与跨轮连贯（含长期记忆）
 ```
 
-- `ImmersionGate` 的输出是**唯一**对用户可见的台词来源。它内部可以重写、可以退兜底，但绝不把违规内容向上传递。
+- **闸门有判断权，没有创作权。** 它产出「这版行不行 + 不行在哪 + 下一版要怎么做」
+  （`ImmersionVerdict.Instructions`），**重新生产台词由 `ReactAgent` 负责**——因为只有它手里有本轮的证据。
+  闸门曾经自己调 LLM 重写，而那次重写调用里没有证据，等于绕开了整套事实校验：
+  模型会退回预训练记忆去补内容，对知名 IP「看着对」，错得很隐蔽。
+- **两层重试，代价差一个数量级**：先「生成级」（同一份证据，按闸门给的修改要求重做，最多
+  `MaxGenerationAttempts` 次），再「检索级」（换检索词重走 RAG，最多 `MaxRetrievalRetries` 次）。
+  两层都用尽才退角色化兜底台词；只有软违规（复读、连贯性、语气）在生成级用尽后**放行**——
+  一句略显重复的角色台词，好过每次都甩同一句保底话。
+- **格式失败只损失「可校验性」，不损失整条回答**：严格协议（JSON + 逐条引用）用尽后，
+  改走一次**松协议重做**——仍然带同一份证据与人设，只是不要求 JSON。
+  实测这是兜底句最大的来源：模型没按格式回包时，旧实现直接换成一句恒定兜底话。
+  松协议的产物不携带 `evidence_ids`，因此不参与逐字/数字校验，但仍要过沉浸闸门。
 - 审查员在**一次性构造的历史**上工作，审查过程与指令绝不写回 `_history`，因此评测本身不会破坏角色上下文连贯。
 - 审查员同时拿到本轮召回给演员的**同一份长期记忆**，所以长程自相矛盾（比最近 8 条更早的事实）也能被发现。
 - `OriginalVoiceCatalog` 是只读素材目录；`OriginalVoiceRetriever` 是检索策略。换检索算法不需要动目录，换素材不需要动算法。
@@ -56,7 +68,7 @@ ReactAgent
 - `IStreamingTtsEngine`：为首包播放、实时语音和嘴型同步预留流式分块接口，当前非流式引擎无需改造；
 - `ISpeechRecognitionEngine`：为本地/远程 ASR 预留输入边界；
 - `ICharacterActionSink`：用与 SDK 无关的 Expression/Motion/LipSync/Notification 协议承接未来 MMD、Live2D 或 VRM；
-- `AgentToolPolicy`：工具声明只读、活动元数据、外部变更等边界，为后续审批、并行调度和 MCP schema 提供元数据。
+- `AgentToolPolicy`：工具声明观察/计算读取/副作用分类、敏感度、确认、超时和输出上限；`ToolExecutor` 执行边界，WPF 宿主提供确认窗口。详见 [工具使用](tool-use.md)。
 
 这些接口是契约，不代表当前版本已经实现对应外部服务；实现新增能力时优先新增适配器，避免把协议、模型或渲染 SDK 侵入 Core 编排。
 
@@ -126,4 +138,3 @@ tests/                        # HuTao.StoryRag.Eval：结构检查 + 离线评�
 > `dependency_project_references_acyclic` 扫 `ProjectReference`），见 [`modules.md`](modules.md) §5。
 
 WPF 的 `CharacterThemeCatalog` 只保存视觉颜色，不保存 persona、语音或文件路径；这些统一来自 Core 的 `CharacterCatalog`。窗口交互按职责拆在 `MainWindow.xaml.cs`、`MainWindow.CharacterSelection.cs`、`MainWindow.DocumentReading.cs` 和 `MainWindow.ChatRoom.cs`，后续可继续把音频播放和主动调度拆成独立适配器。聊天室窗口独立为 `ChatRoomWindow.xaml(.cs)`。
-

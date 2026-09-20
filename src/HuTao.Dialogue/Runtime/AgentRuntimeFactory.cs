@@ -21,6 +21,7 @@ public sealed class AgentRuntimeFactory
     private readonly string _repoRoot;
     private readonly Func<CharacterDefinition, ITtsEngine?>? _ttsFactory;
     private readonly Action<string>? _log;
+    private readonly Func<ToolApproval, CancellationToken, Task<bool>>? _approveTool;
     /// <summary>按语料目录缓存检索服务：胡桃一份、异环一份，互不干扰也互不重复构建。</summary>
     private readonly Dictionary<string, StoryRagService> _storyRags = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _storyGate = new();
@@ -28,11 +29,13 @@ public sealed class AgentRuntimeFactory
     public AgentRuntimeFactory(
         string repoRoot,
         Func<CharacterDefinition, ITtsEngine?>? ttsFactory = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        Func<ToolApproval, CancellationToken, Task<bool>>? approveTool = null)
     {
         _repoRoot = Path.GetFullPath(repoRoot);
         _ttsFactory = ttsFactory;
         _log = log;
+        _approveTool = approveTool;
     }
 
     /// <summary>
@@ -131,6 +134,8 @@ public sealed class AgentRuntimeFactory
             emotionReferences: emotionReferences,
             originalVoices: originalVoices,
             eventSink: eventSink,
+            observationCollector: new ToolObservationCollector(llm, _approveTool,
+                allowAppAwareness, allowSideEffects: string.IsNullOrWhiteSpace(memoryScope)),
             memory: memoryStore);
         var reader = tools.OfType<DocumentReadingTool>().Single();
 
@@ -218,12 +223,15 @@ public sealed class AgentRuntimeFactory
                 character.Name,
                 documentProgress));
 
-        // CLI 工具：白名单在角色包里声明（`cli_tools`），这里只做存在性校验。
+        foreach (var builtin in BuiltinToolCatalog.Create(Path.Combine(_repoRoot, "data", "tool-workspace")))
+            registry.Register(builtin.Name, () => builtin);
+
+        // CLI profiles constrain executable, subcommand, arguments and working directory.
         // 没配就是没有——**不会**去扫 PATH 或让模型自由指定程序。
         foreach (var cli in character.CliTools ?? [])
         {
             var tool = CliTool.TryCreate(cli.Name, cli.Description, ResolvePath(cli.Executable),
-                cli.Arguments, _log);
+                cli.Arguments, _log, Path.Combine(_repoRoot, "data", "tool-workspace"));
             if (tool is not null)
                 registry.Register(cli.Name, () => tool);
         }

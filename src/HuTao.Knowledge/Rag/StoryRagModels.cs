@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 
 namespace HuTao.Knowledge.Rag;
 
@@ -194,7 +194,10 @@ public sealed record StoryRagTrace(
 
 public sealed record StoryRagResult(
     StoryQueryPlan Plan, StoryStatus Status, IReadOnlyList<StoryEvidence> Evidence,
-    IReadOnlyList<StoryDocument> Background, StoryRagTrace Trace);
+    IReadOnlyList<StoryDocument> Background, StoryRagTrace Trace)
+{
+    public IReadOnlyList<HuTao.Knowledge.Memory.MemoryHit> ConversationMemories { get; init; } = [];
+}
 
 public interface IStoryRagService
 {
@@ -220,4 +223,17 @@ public interface IStoryRagService
 public sealed record StoryAnswerSegment(
     string Text, string Emotion, IReadOnlyList<string> EvidenceIds, string Kind, string? VoiceId = null);
 public sealed record StoryAnswerResult(string Reply, IReadOnlyList<StoryAnswerSegment> Segments,
-    bool Validated, IReadOnlyList<string> Issues, string Path);
+    bool Validated, IReadOnlyList<string> Issues, string Path)
+{
+    /// <summary>
+    /// 模型**原始回包**（未解析、未降级）。
+    ///
+    /// 为什么必须单独留一份：校验失败时 <see cref="Reply"/> 已经被换成兜底句，
+    /// 只看它就永远不知道"模型到底回了什么"——是散文？是另一种 JSON 形状？被包在说明文字里？
+    /// 这正是 <c>invalid_json_contract</c> 类问题无法定位的根因。
+    ///
+    /// 仅供可读后端追踪（<c>BackendTrace</c>）使用；诊断日志（LocalDiagnosticLog）
+    /// 的"不存模型正文"契约不受影响，因为它不读这个字段。模型不可用时为空。
+    /// </summary>
+    public string RawReply { get; init; } = "";
+}

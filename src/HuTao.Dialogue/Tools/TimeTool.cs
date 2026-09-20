@@ -6,6 +6,8 @@ namespace HuTao.Dialogue.Tools;
 public sealed class TimeTool : IAgentTool
 {
     public string Name => "time";
+    public AgentToolCategory Category => AgentToolCategory.Observation;
+    public ToolInputSchema InputSchema => ToolInputSchema.Empty;
     public string Description => "获取当前日期和时间";
 
     public Task<string> ExecuteAsync(string? input = null, CancellationToken ct = default)
