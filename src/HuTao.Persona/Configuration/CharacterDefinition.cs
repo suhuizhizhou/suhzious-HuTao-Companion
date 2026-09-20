@@ -59,7 +59,7 @@ public sealed record CharacterDefinition(
 /// 角色包里的一个 CLI 工具声明。
 /// <paramref name="Executable"/> 相对仓库根或绝对路径，**必须已存在**，否则跳过。
 /// </summary>
-/// <param name="Arguments">固定参数前缀；用户输入只会作为最后一项追加，不参与拼接。</param>
+/// <param name="Arguments">审过的固定版本查询参数；不允许追加用户参数或任意子命令。</param>
 public sealed record CliToolDefinition(
     string Name,
     string Description,

@@ -1,4 +1,5 @@
 ﻿using HuTao.Persona;
+using HuTao.Foundation.Diagnostics;
 
 namespace HuTao.Knowledge.Rag;
 
@@ -65,9 +66,14 @@ internal sealed class StoryLineIndex
                 e.Anchor.ChapterId, e.Score, e.Context, e.Anchor.LineId, e.MatchKind)).ToList();
     }
 
+    /// <param name="trace">
+    /// 可选的中间量收集器。**为 null 时所有写入点都被短路，零成本、零行为变化**——
+    /// 只在确实要留下可读记录时才由 <c>StoryRagService</c> 构造。
+    /// </param>
     public (IReadOnlyList<StoryEvidence> Evidence, int Candidates) Retrieve(
         StoryQueryPlan plan, StoryRagOptions options, IReadOnlyList<string> chapterHints,
-        IReadOnlyList<StorySemanticHit> semantic, CancellationToken ct)
+        IReadOnlyList<StorySemanticHit> semantic, CancellationToken ct,
+        RetrievalTraceCollector? trace = null)
     {
         // ── 融合臂 ──
         // **它只是众多可选臂中的一个**：不是默认路径，也不替代其他臂。
@@ -98,8 +104,9 @@ internal sealed class StoryLineIndex
             foreach (var arm in arms)
             {
                 var (list, count) = Retrieve(plan, options with { Strategy = arm, TopK = options.CandidateLimit },
-                    chapterHints, semantic, ct);
+                    chapterHints, semantic, ct, trace);
                 candidates += count;
+                trace?.Notes.Add($"融合臂 {arm}：深度列表 {list.Count} 条（候选 {count}）");
                 for (var rank = 0; rank < list.Count; rank++)
                 {
                     var e = list[rank];
@@ -108,6 +115,9 @@ internal sealed class StoryLineIndex
                     if (!native.ContainsKey(e.Id)) native[e.Id] = e;
                 }
             }
+            trace?.Notes.Add($"融合：RRF(k={rrfK}) 去重后 {rrf.Count} 条 → 取 TopK={options.TopK}；分数尺度取 Baseline");
+            trace?.Notes.Add("注意：融合时每个臂的**逐条闸门日志已并入本段**，它们是各臂独立跑一遍产生的，" +
+                "不是最终融合结果被挡下的条目。");
             var fused = rrf.OrderByDescending(kv => kv.Value)
                 .ThenBy(kv => kv.Key, StringComparer.Ordinal)
                 .Take(options.TopK)
@@ -177,6 +187,11 @@ internal sealed class StoryLineIndex
             .Select((h, rank) => (h.Key, rank)).ToDictionary(x => x.Key, x => x.rank);
         var scorer = new LineScorer(this, plan, originalRanks, expandedRanks, semanticRanks,
             memoryScenes, memories, memoryMax, chapterHints, chapterWeight);
+        // ── 追踪：各通道贡献 ──
+        trace?.Channels.Add($"候选并集 {selected.Length} 条 ← 原句词法命中词元 {original.Count} 个 + 概念扩展词元 {expanded.Count} 个" +
+            $" + 语义命中 {semantic.Count} 条 + 记忆场景行 {memoryScenes.SelectMany(s => _memoryRows[s]).Distinct().Count()} 行" +
+            $" + 章节扩召回 {chapterCandidates.Count} 行" +
+            "（词元数≠候选数：词元是 BM25 命中的 bigram，多个词元可能落到同一行）");
         var ranked = new List<(int Index, double Score, double Coverage, bool Exact, string Kind)>();
         foreach (var i in selected)
         {
@@ -184,15 +199,30 @@ internal sealed class StoryLineIndex
             var scored = scorer.Score(i);
             ranked.Add((i, scored.Score, scored.Coverage, scored.Exact, scored.Kind));
         }
+        trace?.Channels.Add($"已排序 {ranked.Count} 条 · TopK={options.TopK} · CandidateLimit={options.CandidateLimit}" +
+            $" · MinScore={options.MinScore:F2} · 窗口={options.WindowSize}");
+        // ── 追踪：排序前 12 条的分数构成（回答「为什么这行赢了」）──
+        if (trace is not null)
+        {
+            var rank = 0;
+            foreach (var hit in ranked.OrderByDescending(x => x.Score).Take(12))
+            {
+                var line = _corpus.Lines[hit.Index];
+                trace.Ranking.Add(new RetrievalTraceCandidate(++rank, line.EvidenceId, line.Speaker, line.Text,
+                    hit.Score, hit.Coverage, hit.Exact, hit.Kind, scorer.Parts(hit.Index)));
+            }
+        }
         var evidence = new List<StoryEvidence>();
         var seenText = new HashSet<string>(StringComparer.Ordinal);
         var seenAnchors = new HashSet<string>(StringComparer.Ordinal);
         var seenMemories = new HashSet<string>(StringComparer.Ordinal);
         var hasLexicalEvidence = ranked.Any(h => h.Score >= options.MinScore);
+        var examined = 0;
         foreach (var hit in ranked.OrderByDescending(x => x.Score)
                      .ThenBy(x => _corpus.Lines[x.Index].EvidenceKind == "supplemental_page" ? 1 : 0)
                      .ThenBy(x => _corpus.Lines[x.Index].EvidenceId, StringComparer.Ordinal))
         {
+            examined++;
             var line = _corpus.Lines[hit.Index];
             // 两级召回的第二级候选按定义就与查询没有字面重合，分数天然低于 MinScore：
             // 放行它们是这个臂的**全部意义**；不确定与「没有任何常规命中」的 dense 特例混在一起，
@@ -203,23 +233,53 @@ internal sealed class StoryLineIndex
             var inChapterScope = chapterCandidates.Contains(hit.Index);
             // 没有任何常规命中时才放行高相似纯 Dense 候选，仍以低分 Tentative 返回。
             if (hit.Score < options.MinScore && !inChapterScope && (hasLexicalEvidence ||
-                !semanticScores.TryGetValue(line.EvidenceId, out var cosine) || cosine < 0.70)) continue;
+                !semanticScores.TryGetValue(line.EvidenceId, out var cosine) || cosine < 0.70))
+            {
+                trace?.Gates.Add($"MinScore 挡下 {hit.Score:F3}<{options.MinScore:F2} · {line.Speaker}：{RetrievalTraceCollector.Shorten(line.Text, 40)}");
+                continue;
+            }
             // 角色故事每个场景只放行分数最高的 1 行。
             // **实测记录（2026-09-13）：不要放宽它。** 曾为了补 Anchor R@5 放宽到每场景 2 行
             // （假设：金标锚点不是该场景最高分行，所以永远进不了 top-5），结果全面变差：
             // challenge R@5 71.7%→70.9%、Context 67.7%→66.1%、legacy 全事实 88.1%→86.8%。
             // 原因是同场景多出来的那行会挤掉其他场景更有用的证据。R@5 的缺口不在这里。
-            if (line.EvidenceKind == "character_story" && !seenMemories.Add(line.SceneKey)) continue;
-            if (!seenText.Add(StoryQueryAnalyzer.Normalize(line.Speaker) + ":" + _texts[hit.Index])) continue;
+            if (line.EvidenceKind == "character_story" && !seenMemories.Add(line.SceneKey))
+            {
+                trace?.Gates.Add($"同场景限量挡下（该场景已有更高分行）· 场景 {line.SceneKey} · {line.Speaker}");
+                continue;
+            }
+            if (!seenText.Add(StoryQueryAnalyzer.Normalize(line.Speaker) + ":" + _texts[hit.Index]))
+            {
+                trace?.Gates.Add($"同文本去重挡下（说话人+正文已出现过）· {line.Speaker}：{RetrievalTraceCollector.Shorten(line.Text, 40)}");
+                continue;
+            }
             // 保留独立命中锚点；每个证据携带自己的合法窗口，最终上下文再全局去重。
-            if (!seenAnchors.Add(line.EvidenceId)) continue;
+            if (!seenAnchors.Add(line.EvidenceId))
+            {
+                trace?.Gates.Add($"锚点重复挡下 · {line.EvidenceId}");
+                continue;
+            }
             var (context, kind) = Context(line, options.WindowSize);
             evidence.Add(new StoryEvidence(line.EvidenceId, line, context, hit.Score, hit.Coverage, hit.Exact,
                 hit.Kind, line.EvidenceKind == "character_story" || _lexicon.IsSelfSpeaker(line.Speaker)
                     ? StoryPerspective.Personal : StoryPerspective.Archive, kind));
-            if (evidence.Count >= options.TopK) break;
+            if (evidence.Count >= options.TopK)
+            {
+                trace?.Gates.Add($"TopK 截断：证据已达 {options.TopK} 条，扫描到第 {examined} 条候选为止" +
+                    $"（剩余 {ranked.Count - examined} 条候选未再检查）");
+                break;
+            }
         }
-        return (ReselectAnchors(evidence, scorer), selected.Length);
+        // ── 追踪：锚点重选（旧锚点 → 新锚点）──
+        var beforeReselect = evidence.Select(e => e.Anchor.EvidenceId).ToArray();
+        var reselected = ReselectAnchors(evidence, scorer);
+        if (trace is not null)
+            for (var i = 0; i < reselected.Count; i++)
+                if (i < beforeReselect.Length && !string.Equals(beforeReselect[i], reselected[i].Anchor.EvidenceId, StringComparison.Ordinal))
+                    trace.Reselect.Add($"[{i}] {beforeReselect[i]} → {reselected[i].Anchor.EvidenceId}" +
+                        $"（{reselected[i].Anchor.Speaker}：{RetrievalTraceCollector.Shorten(reselected[i].Anchor.Text, 40)}）" +
+                        $"  分数 {reselected[i].Score:F3}/覆盖 {reselected[i].Coverage:F3} 保持不变——重选只换引用行，不回灌排序信号");
+        return (reselected, selected.Length);
     }
 
     /// <summary>
@@ -364,6 +424,41 @@ internal sealed class StoryLineIndex
             var score = (exact ? 0.55 : 0) + coverage * 0.44 + fusion * 4 + self + entity + chapter;
             return (score, coverage, exact, exact ? "phrase" :
                 _semanticRanks.ContainsKey(line.EvidenceId) ? "bm25+dense+rrf" : "bm25+expansion+rrf");
+        }
+
+        /// <summary>
+        /// 与 <see cref="Score"/> **同一套算式**拆出来的分项，只给追踪日志用。
+        ///
+        /// 为什么值得再算一遍：日志里只印一个总分，读者无法回答「这行是靠精确命中赢的、
+        /// 还是靠记忆场景先验 / 章节先验抬上来的」——而这两种情况的结论完全不同
+        /// （前者是检索真的命中了，后者是软先验在起作用）。重复计算的成本只在开追踪时发生，
+        /// 而开追踪的场景本来就是排查，不在热路径上。
+        /// </summary>
+        public IReadOnlyList<string> Parts(int index)
+        {
+            var line = _owner._corpus.Lines[index];
+            var text = _owner._texts[index];
+            var exact = _plan.Variants.Any(v => v.Length >= 5 && text.Contains(v, StringComparison.Ordinal));
+            var coverage = _plan.Variants.Select(v => _owner.Coverage(v, text)).DefaultIfEmpty().Max();
+            var fusion = (_originalRanks.TryGetValue(index, out var r) ? 1.0 / (RrfK + r) : 0) +
+                         (_expandedRanks.TryGetValue(index, out r) ? 0.4 / (RrfK + r) : 0) +
+                         (_semanticRanks.TryGetValue(line.EvidenceId, out r) ? 0.8 / (RrfK + r) : 0);
+            var self = _plan.IsSelf && _owner._lexicon.IsSelfSpeaker(line.Speaker) ? 0.08 : 0;
+            var memory = 0.0;
+            if (_memoryScenes.Contains(line.SceneKey))
+                memory = 0.30 * _memories[line.SceneKey] / Math.Max(1, _memoryMax);
+            var entityHits = _plan.Entities.Count(e => line.Text.Contains(e) || line.Speaker.Contains(e));
+            var entity = entityHits * 0.06;
+            var chapter = _chapterHints.Contains(line.ChapterId) ? _chapterWeight : 0;
+            var parts = new List<string>();
+            if (exact) parts.Add("精确 0.550");
+            parts.Add($"覆盖 {coverage * 0.44:F3}（覆盖度 {coverage:F3}×0.44）");
+            if (fusion > 0) parts.Add($"RRF {fusion * 4:F3}");
+            if (self > 0) parts.Add($"自称 {self:F3}");
+            if (memory > 0) parts.Add($"记忆场景先验 {memory:F3}");
+            if (entityHits > 0) parts.Add($"实体×{entityHits} {entity:F3}");
+            if (chapter > 0) parts.Add($"章节先验 {chapter:F3}");
+            return parts;
         }
     }
 

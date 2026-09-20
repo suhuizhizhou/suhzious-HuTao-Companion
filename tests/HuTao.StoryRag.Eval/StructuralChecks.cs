@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using HuTao.Foundation.Abstractions;
 using HuTao.Foundation.Diagnostics;
 using HuTao.Knowledge.Rag;
@@ -35,9 +35,12 @@ internal static class StructuralChecks
         checks.AddRange(await SpeechDeliveryChecks.RunAsync());
         checks.AddRange(await ConversationChecks.RunAsync());
         checks.AddRange(await MemoryChecks.RunAsync());
+        checks.AddRange(await RecallChecks.RunAsync());
+        checks.AddRange(await ToolChecks.RunAsync());
         checks.AddRange(await NteChecks.RunAsync(repoRoot));
         checks.AddRange(await ChatRoomChecks.RunAsync());
         CheckReferenceAudioLengths(repoRoot, Check);
+        CheckSpeechText(Check);
         CheckLorePromptContract(Check);
         CheckJudgeScope(Check);
         CheckBackendTrace(Check);
@@ -236,6 +239,16 @@ internal static class StructuralChecks
             string Response(string text, string kind = "fact", string? id = null, string emotion = "neutral") =>
                 JsonSerializer.Serialize(new { segments = new[] { new { text, kind, emotion, evidence_ids = id == "-" ? Array.Empty<string>() : new[] { id ?? evidence.Id } } } });
             Check("valid_citation_contract", StoryAnswerComposer.Validate(Response("前面有岔路"), branch).Validated);
+            // 协议只要求 fact/quote 绑定证据；**thought/action 不带 evidence_ids 是规范写法**。
+            // 实测踩过的坑：验证器用 GetProperty 硬取 evidence_ids，模型规范地省略它时抛异常，
+            // 整条回答被判成 invalid_json_contract 并换成兜底句——一条完全正确的回答就这么丢了。
+            Check("thought_without_evidence_ids_accepted", StoryAnswerComposer.Validate(
+                """{"answerability":"supported","segments":[{"text":"前面有岔路","emotion":"neutral","kind":"thought"}]}""",
+                branch).Validated);
+            // 反过来，"该带却没带"仍然必须拦住。
+            Check("fact_without_evidence_ids_rejected", !StoryAnswerComposer.Validate(
+                """{"answerability":"supported","segments":[{"text":"前面有岔路","emotion":"neutral","kind":"fact"}]}""",
+                branch).Validated);
             Check("invalid_json_rejected", !StoryAnswerComposer.Validate("不是JSON", branch).Validated);
             Check("wrong_schema_rejected", !StoryAnswerComposer.Validate("""{"segments":42}""", branch).Validated);
             Check("missing_citation_rejected", !StoryAnswerComposer.Validate(Response("有两条路", id: "-"), branch).Validated);
@@ -366,10 +379,11 @@ internal static class StructuralChecks
             !repeated.Passed && repeated.Violations.Any(v => v.Kind == ImmersionViolationKind.Repetition), repeated.KindsSummary);
 
         // 修复不可用时必须退回兜底台词，而不是把出戏内容放出去。
+        // （闸门自己不再重写；这里是"生成级重试用尽 + 检索级重试用尽"后的兜底路径。）
         var blockedLlm = new StubLlm("作为一个AI助手，我可以帮你查询这段剧情。");
         var blocked = new ReactAgent(
             stub, blockedLlm, null, [],
-            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false, AllowLlmRepair = false });
+            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false });
         var blockedTurn = await blocked.GenerateTextAsync("帮我查查这段剧情", false);
         check("immersion_gate_never_emits_ooc",
             !blockedTurn.Reply.Contains("AI") && blockedTurn.Reply.Contains("重新理一理"), blockedTurn.Reply);
@@ -391,20 +405,136 @@ internal static class StructuralChecks
         var retryLlm = new StubLlm("作为一个AI助手，我可以帮你查询这段剧情。");
         var retryAgent = new ReactAgent(
             stub, retryLlm, null, [tool], diagnostics: retryLog,
-            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false, AllowLlmRepair = false });
+            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false });
         var retryTurn = await retryAgent.GenerateTextAsync("帽子的梅花是怎么做的？", false);
         var retryDiag = File.ReadAllText(retryLog.FilePath);
         check("observe_retry_reenters_rag_on_immersion_failure",
             retryDiag.Contains("observe-retry"), $"calls={retryLlm.Calls}");
         // 轮次用尽后仍只能落到兜底台词，绝不能把出戏内容放出去。
         check("observe_retry_falls_back_after_exhaustion",
-            !retryTurn.Reply.Contains("AI") && retryTurn.Reply.Contains("重新理一理"), retryTurn.Reply);
+            !retryTurn.Reply.Contains("AI") && (retryTurn.Reply.Contains("重新理一理") ||
+                retryTurn.StoryAnswer?.Path == "deterministic-boundary"), retryTurn.Reply);
+
+        // **闸门不写台词，重做必须由 agent 带证据完成。**
+        // 用一条会走**剧情协议**的查询（带引号 → 路由到检索；含「为什么」→ 不走原话直出短路），
+        // 配一个"结构合法但出戏"的回包，逼出生成级重试，再断言那次调用的系统提示里
+        // **证据 JSON 与修改要求同时在场**——这正是旧实现漏掉的东西：
+        // 旧 RewriteAsync 只给人设 + 沉浸约束，模型拿不到证据，只能退到预训练记忆去补内容，
+        // 于是最终答复看起来通顺却绕开了整套事实校验。
+        var storyOocJson =
+            "{\"answerability\":\"supported\",\"segments\":[{\"text\":\"作为一个AI助手，我不确定这段剧情。\"," +
+            "\"emotion\":\"neutral\",\"kind\":\"thought\",\"evidence_ids\":[]}]}";
+        var storyLlm = new StubLlm(storyOocJson);
+        var storyAgent = new ReactAgent(
+            stub, storyLlm, null, [tool],
+            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false });
+        await storyAgent.GenerateTextAsync("“前面是两条不同的岔路”是为什么？", false);
+        var constrained = storyLlm.Prompts
+            .Where(p => p.Contains("【本轮修改要求】", StringComparison.Ordinal)).ToArray();
+        check("immersion_retry_carries_evidence",
+            constrained.Length > 0 &&
+            constrained.All(p => p.Contains("检索资料 JSON", StringComparison.Ordinal)),
+            $"带约束的剧情协议调用={constrained.Length} 次；全部含证据=" +
+            $"{constrained.Length > 0 && constrained.All(p => p.Contains("检索资料 JSON", StringComparison.Ordinal))}");
+
+        // 闸门的输出契约：给的是「下一版要怎么做」，不是替代台词。
+        check("immersion_verdict_carries_instructions",
+            ooc.Instructions.Count > 0 && ooc.Instructions.Any(i => i.Contains("AI", StringComparison.Ordinal)),
+            string.Join("；", ooc.Instructions));
+
+        // **Composer 降级成兜底句时也必须重做，而不是就此放行。**
+        // 兜底句本身不出戏，闸门会放行；若不单独判「契约降级」，重试永远不触发，
+        // 用户就停在「唔，让我再理一理」上（在线 100 例里 62 例如此）。
+        // 判据：第二次及以后的生成调用里带上了【契约要求】。
+        var degradedLlm = new StubLlm("broken");
+        var degradedAgent = new ReactAgent(
+            stub, degradedLlm, null, [tool],
+            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false });
+        await degradedAgent.GenerateTextAsync("“前面是两条不同的岔路”是为什么？", false);
+        var contractRetries = degradedLlm.Prompts
+            .Count(p => p.Contains("只返回规定的 JSON", StringComparison.Ordinal));
+        check("validation_fallback_triggers_regeneration",
+            contractRetries > 0, $"带契约要求的重做调用={contractRetries} 次；总调用={degradedLlm.Calls}");
+
+        // **协议失败（模型没按 JSON 回）不该等于"恒定兜底句"。**
+        // 严格协议用尽后改用松协议重做：仍然带同一份证据，只是不要 JSON——
+        // 格式失败只该损失"可校验性"，不该损失整条回答（实测这是兜底句最大的来源）。
+        var proseLlm = new StubLlm("（歪头）这我可得想想——你说的那个，我记不太清了。");
+        var proseAgent = new ReactAgent(
+            stub, proseLlm, null, [tool],
+            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false });
+        var proseTurn = await proseAgent.GenerateTextAsync("“前面是两条不同的岔路”是为什么？", false);
+        check("protocol_failure_falls_back_to_relaxed_reply",
+            !proseTurn.Reply.Contains("让我再理一理") && proseTurn.Reply.Contains("想想"), proseTurn.Reply);
+        var relaxedPrompts = proseLlm.Prompts
+            .Where(p => p.Contains("本轮改用宽松输出", StringComparison.Ordinal)).ToArray();
+        // 松协议仍然带**证据原文**（换成纯文本块，不再是 JSON 协议）。
+        check("relaxed_retry_still_carries_evidence",
+            relaxedPrompts.Length == 1 &&
+            relaxedPrompts[0].Contains("前面是两条不同的岔路", StringComparison.Ordinal),
+            $"松协议调用={relaxedPrompts.Length} 次");
+        // 而且不能自相矛盾：松协议那一次里既不能有 JSON 协议，也不能有"只返回规定的 JSON"，
+        // 但内容类要求（回应问题）必须在。实测混在一起时模型只回 17 个字。
+        check("relaxed_retry_drops_json_contract",
+            relaxedPrompts.Length == 1 &&
+            !relaxedPrompts[0].Contains("只返回 JSON", StringComparison.Ordinal) &&
+            !relaxedPrompts[0].Contains("只返回规定的 JSON", StringComparison.Ordinal) &&
+            relaxedPrompts[0].Contains("必须真正回应用户刚说的这句话", StringComparison.Ordinal),
+            relaxedPrompts.Length == 1
+                ? $"含协议={relaxedPrompts[0].Contains("只返回 JSON", StringComparison.Ordinal)}"
+                  + $" 含契约JSON={relaxedPrompts[0].Contains("只返回规定的 JSON", StringComparison.Ordinal)}"
+                  + $" 含回应用户={relaxedPrompts[0].Contains("必须真正回应用户刚说的这句话", StringComparison.Ordinal)}"
+                : $"松协议调用={relaxedPrompts.Length} 次");
+
+        // **一级修复：本地确定性修复**（零 LLM）。格式/引用类问题不该占用生成级重试预算，
+        // 更不该把整个回合拖进"重生成 → 换检索词 → 兜底"——实测正是这条路径把好回答换成了兜底句。
+        var repairSource = await tool.RetrieveAsync("“前面是两条不同的岔路”是为什么？");
+        check("local_repair_fixes_format_issues", StoryAnswerComposer.TryLocalRepair(
+            """{"answerability":"supported","segments":[{"text":"前面有岔路","emotion":"bogus","kind":"thought"}]}""",
+            repairSource) is { Validated: true, Path: "local-repaired" },
+            "非法 emotion 应被就地改为 neutral 并通过复校");
+        // 内容类问题（假亲历）不在本地可修范围：必须交回上层重新措辞，不能在这里糊过去。
+        check("local_repair_returns_null_for_content_issues", StoryAnswerComposer.TryLocalRepair(
+            """{"answerability":"supported","segments":[{"text":"我亲眼见过这条路","emotion":"neutral","kind":"thought"}]}""",
+            repairSource) is null,
+            "假亲历必须交回重生成，不能在本地消掉");
+        // 端到端：可本地修复的那一轮，**协议生成只调一次**（没有重生成）。
+        const string repairableJson =
+            """{"answerability":"supported","segments":[{"text":"前面有岔路","emotion":"bogus","kind":"thought"}]}""";
+        var repairLlm = new StubLlm(repairableJson);
+        var repairAgent = new ReactAgent(stub, repairLlm, null, [tool],
+            immersionOptions: new ImmersionOptions { EnableRuleGate = true, EnableCritic = false });
+        var repairTurn = await repairAgent.GenerateTextAsync("“前面是两条不同的岔路”是为什么？", false);
+        var composeCalls = repairLlm.Prompts.Count(p => p.Contains("剧情回答协议", StringComparison.Ordinal));
+        check("local_repair_avoids_regeneration",
+            composeCalls == 1 && repairTurn.Reply.Contains("前面有岔路", StringComparison.Ordinal),
+            $"协议生成调用={composeCalls} 次；reply={repairTurn.Reply}");
+
+        // 规则层可单独关闭（`HU_TAO_IMMERSION_RULES=false`，用于把"规则误杀"与"评审误杀"分开归因）。
+        // 关掉之后路径必须带 rules-off/ 前缀，否则「关着」与「开着但一次没命中」
+        // 在 trace 和诊断里长得一模一样，事后没人分得清。
+        var rulesOffGate = new ImmersionGate(
+            parser, new StubLlm(""), new ImmersionOptions { EnableRuleGate = false, EnableCritic = false });
+        var rulesOff = await rulesOffGate.ReviewAsync(
+            Request("作为一个AI助手，我可以帮你查询这段剧情。"), CancellationToken.None);
+        check("rule_gate_can_be_disabled_and_stays_visible",
+            rulesOff.Path.StartsWith("rules-off/", StringComparison.Ordinal) && rulesOff.Verdict.Passed,
+            rulesOff.Path);
+
+        // 评审员说「语气不像角色」是**软**违规：它是对"像不像"的主观判断，
+        // 不该像"自称 AI"那样把整轮台词换成固定兜底话（旧分类把它映成 AiSelfReference）。
+        check("tone_is_soft_but_ai_self_reference_stays_hard",
+            !ImmersionGate.IsBlocking(ImmersionViolationKind.Tone) &&
+            ImmersionGate.IsBlocking(ImmersionViolationKind.AiSelfReference) &&
+            ImmersionDirectives.For(ImmersionViolationKind.Tone).Contains("口吻", StringComparison.Ordinal),
+            ImmersionDirectives.For(ImmersionViolationKind.Tone));
 
         // 闸门结论必须随回合结果回传。以前它只改内部状态，外部只能看到一个被替换过的台词：
         // 「闸门到底判过没有、判的是什么」在观测侧完全不可见，在线评测只能自己重写一套规则去猜。
         // 回传的是闸门自己的结论，不是评测另写的判据——这样「闸内判」与「闸外判官判」的差异才可比。
         check("agent_turn_exposes_immersion_verdict",
-            retryTurn.Immersion is { Passed: false, Violations.Count: > 0 },
+            retryTurn.Immersion is not null && (retryTurn.Immersion is { Passed: false, Violations.Count: > 0 } ||
+                retryTurn.StoryAnswer?.Path == "deterministic-boundary" && retryTurn.Immersion.Passed),
             $"passed={retryTurn.Immersion?.Passed}; kinds={retryTurn.Immersion?.KindsSummary}");
         // 多级多次查询同理：轮次与逐轮查询必须随结果回传，否则在线指标只剩一个最终证据池，
         // 看不出「多跳究竟有没有真的多轮去查」。
@@ -431,15 +561,13 @@ internal static class StructuralChecks
             rmem.Turns.Count > 1 && rmem.HeldEvidenceIds.Count >= heldAfterFirst,
             $"turns={rmem.Turns.Count}; held={rmem.HeldEvidenceIds.Count}");
 
-        // 跨轮**复用**：第二个查询本身在小夹具语料里零命中（路由也不走检索），
-        // 所以池子里若还出现第一轮持有的证据，就只可能来自检索记忆——
-        // 这个断言是可证伪的，不像「累积」那条可能被自然重合蒙过。
+        // 换话题不能因为缓存里还有旧证据，就把旧剧情再次塞进本轮。
         var heldBeforeSecond = rmem.HeldEvidenceIds.ToArray();
         var secondTurn = await rloop.RunAsync("完全不存在的词", []);
         var secondIds = secondTurn?.EvidencePool.Evidence.Select(e => e.Id).ToHashSet() ?? [];
         var reused = heldBeforeSecond.Count(secondIds.Contains);
-        check("retrieval_memory_reuses_held_evidence",
-            secondTurn is not null && reused > 0,
+        check("retrieval_memory_does_not_leak_across_topics",
+            secondTurn is not null && reused == 0,
             $"heldBefore={heldBeforeSecond.Length}; reusedInSecondPool={reused}");
 
         // 「多级多次查询交给 agent」在离线侧的空白：**补差改写**过去只在 LLM planner 打开时才可能触发，
@@ -538,6 +666,42 @@ internal static class StructuralChecks
     }
 
     /// <summary>
+    /// 送进 TTS 的文本规范化。两条都是**实测报上来的失效**，所以钉死：
+    ///
+    /// 1. 括号内的动作/旁白不能念出来。原先只判断「整段是不是括号」，
+    ///    于是 `（撑着下巴）客官今日来得早啊。` 整段不算动作 → 「撑着下巴」被念了出来。
+    /// 2. 破折号必须有停顿。GPT-SoVITS `cut5` 按中文标点切句、**标点表里没有破折号**，
+    ///    所以 `我——不是那个意思` 读起来一口气。规范化把它换成会被切句的标点。
+    /// </summary>
+    private static void CheckSpeechText(CheckSink check)
+    {
+        var inline = SpeechText.ForSpeech("（撑着下巴）客官今日来得早啊。");
+        check("speech_strips_inline_action",
+            !inline.Contains("撑着下巴", StringComparison.Ordinal) && inline.Contains("客官今日来得早啊", StringComparison.Ordinal),
+            $"→ {inline}");
+
+        check("speech_drops_pure_action",
+            SpeechText.ForSpeech("（只有动作，没有台词）") == "",
+            $"→ [{SpeechText.ForSpeech("（只有动作，没有台词）")}]");
+
+        var dash = SpeechText.ForSpeech("我——不是那个意思");
+        check("speech_pauses_at_dash",
+            !dash.Contains("——", StringComparison.Ordinal) && dash.Contains('，'),
+            $"→ {dash}");
+
+        check("speech_leaves_plain_text_untouched",
+            SpeechText.ForSpeech("你好呀。") == "你好呀。",
+            $"→ {SpeechText.ForSpeech("你好呀。")}");
+
+        var halfWidth = SpeechText.ForSpeech("你好(laugh)呀");
+        check("speech_strips_halfwidth_action", !halfWidth.Contains("laugh", StringComparison.Ordinal), $"→ {halfWidth}");
+
+        // 标点替换成句号时必须照做（这是「停顿更明显」的那个档位）。
+        check("speech_dash_pause_is_configurable",
+            SpeechText.ForSpeech("我——不是", "。").Contains('。'), $"→ {SpeechText.ForSpeech("我——不是", "。")}");
+    }
+
+    /// <summary>
     /// 后端追踪日志（agent + RAG 的可读运行叙事）的机制断言。
     ///
     /// 为什么要钉它：这份日志的**唯一价值是人会去读**。它坏掉的方式全是静默的——
@@ -590,7 +754,8 @@ internal static class StructuralChecks
             var before = new FileInfo(path).Length;
             BackendTrace.Default.Retrieval(new RetrievalTraceRecord(
                 "测试查询", "Retrieve", "剧情或角色线索", "Answer", "Baseline", 0, false, 3, 12.5,
-                ["测试查询"], [new RetrievalTraceEvidence("id-1", "胡桃", "测试原文", 0.5, 0.4, "ch", true, "bm25")], []));
+                [new RetrievalTraceVariant("测试查询", "原句变体", true)],
+                [new RetrievalTraceEvidence("id-1", "胡桃", "测试原文", 0.5, 0.4, "ch", true, "bm25")], []));
             var after = File.ReadAllText(path);
             check("backend_trace_records_standalone_rag_call",
                 new FileInfo(path).Length > before &&
@@ -946,8 +1111,10 @@ internal sealed class StubLlm(string output) : ILLMProvider
 {
     public string Name => "offline-stub";
     public int Calls { get; private set; }
+    /// <summary>按调用顺序记录每次的提示词，用于断言「重做时证据与修改要求同时在场」。</summary>
+    public List<string> Prompts { get; } = [];
     public Task<string> CompleteAsync(string p, IReadOnlyList<ChatMessage> h, CancellationToken ct = default)
     {
-        ct.ThrowIfCancellationRequested(); Calls++; return Task.FromResult(output);
+        ct.ThrowIfCancellationRequested(); Calls++; Prompts.Add(p); return Task.FromResult(output);
     }
 }

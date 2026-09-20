@@ -53,7 +53,16 @@ public sealed class DocumentReadingTool : IAgentTool
     public AgentToolPolicy Policy => new(
         Effect: AgentToolEffect.LocalOutput,
         RequiresExplicitIntent: true,
-        CanRunInParallel: false);
+        CanRunInParallel: false, RequiresConfirmation: true, TimeoutSeconds: 600);
+
+    public ToolInputSchema InputSchema => new(new ToolArgument("input", ToolArgumentType.String, MaxLength: 2048));
+    public string? ValidateArguments(System.Text.Json.JsonElement arguments) =>
+        TryExtractRequestedPath(arguments.GetProperty("input").GetString(), out _) ? null : "explicit_document_request_required";
+    public string DescribeAction(System.Text.Json.JsonElement arguments)
+    {
+        TryExtractRequestedPath(arguments.GetProperty("input").GetString(), out var path);
+        return "读取文档并生成本地语音文件：" + path;
+    }
 
     public Task<DocumentReadingResult> ReadAsync(
         string documentPath,
@@ -70,12 +79,11 @@ public sealed class DocumentReadingTool : IAgentTool
         }
 
         var result = await ReadAsync(path, ct).ConfigureAwait(false);
-        return result.Success
-            ? $"文档朗读完成：共 {result.ChunkCount} 段，MP3 输出：{result.OutputMp3}。请告诉用户‘我完成了，快去听’；不要把长文全文放入聊天气泡。"
-            : "文档朗读未完成。不要宣称成功；可以告诉用户这份稿子还没念完，稍后再试。技术细节仅写后台日志，不作角色台词。";
+        if (!result.Success) throw new InvalidOperationException("document_reading_incomplete");
+        return $"文档朗读完成：共 {result.ChunkCount} 段，MP3 输出：{result.OutputMp3}。";
     }
 
-    private static bool TryExtractRequestedPath(string? input, out string path)
+    public static bool TryExtractRequestedPath(string? input, out string path)
     {
         path = "";
         if (string.IsNullOrWhiteSpace(input))

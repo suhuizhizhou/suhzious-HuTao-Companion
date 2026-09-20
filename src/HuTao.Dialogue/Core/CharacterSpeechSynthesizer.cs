@@ -44,10 +44,17 @@ public sealed class CharacterSpeechSynthesizer : ICharacterSpeechSynthesizer
         if (_tts is null || SpeechText.IsAction(text))
             return null;
 
+        // 兜底规范化：动作括号会被去掉、破折号会变成可切句的停顿。
+        // 放在这个咽喉点而不是只放在调用方，是因为「整段是动作」以外的形态
+        // （括号夹在台词中间）只有规范化能处理，而任何调用方都可能忘记做。
+        var speakable = SpeechText.ForSpeech(text, SpeechText.DashPause);
+        if (speakable.Length == 0)
+            return null;
+
         var style = _emotionReferences?.Select(emotion, intensity);
         return await _tts.SynthesizeAsync(
             new TtsRequest(
-                text,
+                speakable,
                 style?.RefAudioPath ?? _fallbackAudio,
                 style?.RefText ?? _fallbackText,
                 SpeedFactor: style?.SpeedFactor ?? 1.0,

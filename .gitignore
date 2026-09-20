@@ -41,6 +41,7 @@ data/important_memories*.json
 # 异环(NTE) 提取产物（模型/语音/剧情/人设包），绝不入库
 data/nte/
 data/reading/
+data/tool-workspace/
 .env
 .env.*
 !.env.example

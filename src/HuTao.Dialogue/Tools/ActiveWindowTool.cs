@@ -31,6 +31,8 @@ public sealed class ActiveWindowTool : IAgentTool
     }
 
     public string Name => "active_window";
+    public AgentToolCategory Category => AgentToolCategory.Observation;
+    public ToolInputSchema InputSchema => ToolInputSchema.Empty;
 
     public string Description =>
         "获取用户当前前台应用的进程名、窗口标题和已停留时长，用于判断用户此刻在做什么、是否适合打扰";

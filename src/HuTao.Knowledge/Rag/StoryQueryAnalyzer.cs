@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using HuTao.Foundation.Abstractions;
@@ -211,9 +211,17 @@ public static class StoryQueryAnalyzer
         // 复杂联动问题常把多个子问题写在一句话里。保留整句用于整体语义，同时将中文标点切出的子句作为独立召回通道，避免某个长子句稀释另一个事实的 BM25 得分。
         var clauses = Regex.Split(query, "[，,；;。！？!?：:]" )
             .Select(part => Normalize(StripFillers(part, lexicon)))
-            // 纯“那后来呢/然后呢”是指代控制词，不应在全语料中当作普通关键词命中随机台词；真正的主题来自已解析的相邻历史。
+            // 纯「那后来呢/继续说/接着」是指代控制词，不应在全语料中当作普通关键词命中随机台词；
+            // 真正的主题来自已解析的相邻历史。
             // 同理，剥完填充词只剩一两个字的残渣（「胡桃现在几岁」→「现在」）也不能当通道。
-            .Where(part => IsInformative(part) && !Regex.IsMatch(part, "^(那后来|然后呢|后来呢|那时候|那时)$"));
+            // 实测踩过的坑：问「继续说」时控制词自己成了一条召回通道，捞回一堆字面含"你继续说"的
+            // 无关台词（覆盖度 1.000、拿 Answer），把本该由上一轮主题决定的证据全挤掉了。
+            // 所以这里**只匹配纯控制词**——带主题的（「继续说钟离在层岩巨渊做了什么」）不算。
+            .Where(part => IsInformative(part) && !Regex.IsMatch(part,
+                "^(那后来|然后呢|后来呢|那时候|那时|" +
+                "继续(说|讲|聊)(下去|吧|呀|啊|嘛)?|接着(说|讲|聊)?(下去|吧)?|" +
+                "再(详细|具体)(说说|讲讲)?|再(说说|讲讲)|" +
+                "上一句|下一句|那之后|这之后|回到刚才|刚才说的|前面说的)$"));
         quoted.AddRange(clauses);
         // 原句保留用于精确定位，内容词版本用于口语问句 BM25；短内容词不会误触发原句快速答复。
         var clean = Normalize(StripFillers(query, lexicon));

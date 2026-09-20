@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 using HuTao.Dialogue.Immersion;
 using HuTao.Knowledge.Memory;
 using HuTao.Persona;
@@ -7,6 +7,7 @@ using HuTao.Voice;
 using HuTao.Knowledge.Rag;
 using HuTao.Dialogue.Tools;
 using System.Diagnostics;
+using System.Text;
 using HuTao.Foundation.Diagnostics;
 
 namespace HuTao.Dialogue.Core;
@@ -35,6 +36,7 @@ public sealed class ReactAgent : IAgentConversation
     private readonly List<ChatMessage> _history = [];
     private readonly StoryKnowledgeTool? _storyTool;
     private readonly ReactRetrievalLoop? _reactRetrieval;
+    private readonly ConversationRecall _recall;
     private readonly StoryAnswerComposer _storyComposer = new();
     private readonly SemaphoreSlim _turnGate = new(1, 1);
     private readonly HuTao.Foundation.Diagnostics.LocalDiagnosticLog _diagnostics;
@@ -68,7 +70,7 @@ public sealed class ReactAgent : IAgentConversation
         _importantMemory = importantMemory;
         _originalVoices = originalVoices;
         _voiceRetriever = originalVoices is null ? null : new OriginalVoiceRetriever(originalVoices);
-        _observationCollector = observationCollector ?? new ToolObservationCollector();
+        _observationCollector = observationCollector ?? new ToolObservationCollector(llm, diagnostics: diagnostics);
         _promptBuilder = promptBuilder ?? new AgentPromptBuilder();
         _segmentParser = segmentParser ?? new SpeechSegmentParser(originalVoices);
         _speechSynthesizer = speechSynthesizer ?? new CharacterSpeechSynthesizer(
@@ -85,6 +87,10 @@ public sealed class ReactAgent : IAgentConversation
             : null;
         _memoryStore = memory;
         _memoryRetriever = memory is null ? null : new MemoryRetriever(memory);
+        var recallStrategies = new List<IConversationRecallStrategy>();
+        if (_memoryRetriever is not null) recallStrategies.Add(new MemoryRecallStrategy(_memoryRetriever, llm));
+        if (_reactRetrieval is not null) recallStrategies.Add(new StoryRecallStrategy(_reactRetrieval));
+        _recall = new ConversationRecall(llm, persona.EffectiveLexicon, recallStrategies);
     }
 
     public IReadOnlyList<ChatMessage> History => _history;
@@ -168,14 +174,28 @@ public sealed class ReactAgent : IAgentConversation
                 else
                 {
                     var first = spoken[0];
+                    // 只送**可读部分**给引擎：括号里的动作/旁白去掉（整段是动作的已在上面滤掉，
+                    // 但「（撑着下巴）客官今日来得早啊」这种夹在台词里的必须在这一层剥），
+                    // 破折号换成会被 cut5 切句的标点，否则听起来完全没有停顿。
+                    var speakable = spoken
+                        .Select(segment => SpeechText.ForSpeech(segment.Text, SpeechText.DashPause))
+                        .Where(line => line.Length > 0)
+                        .ToArray();
+                    if (speakable.Length == 0)
+                    {
+                        action = "仅包含动作与括号旁白，已跳过语音合成";
+                    }
+                    else
+                    {
                     audio = await _speechSynthesizer.SynthesizeAsync(
-                        string.Join('\n', spoken.Select(segment => segment.Text)),
+                        string.Join('\n', speakable),
                         first.Emotion,
                         first.Intensity,
                         ct).ConfigureAwait(false);
                     action = audio is null
                         ? "语音引擎未返回音频"
                         : $"已合成语音 {audio.AudioPath}";
+                    }
                 }
             }
             catch (Exception ex)
@@ -203,7 +223,7 @@ public sealed class ReactAgent : IAgentConversation
             text.Observation,
             text.Reply,
             audio,
-            action) { Story=text.Story, StoryAnswer=text.StoryAnswer, Immersion=text.Immersion, ImmersionPath=text.ImmersionPath, Retrieval=text.Retrieval };
+            action) { Story=text.Story, StoryAnswer=text.StoryAnswer, Immersion=text.Immersion, ImmersionPath=text.ImmersionPath, Retrieval=text.Retrieval, Recall=text.Recall, ToolRuns=text.ToolRuns };
     }
 
     private async Task<TextResult> GenerateTextCoreAsync(
@@ -259,9 +279,7 @@ public sealed class ReactAgent : IAgentConversation
         var historyBeforeTurn = _history.ToArray();
         if (userInput is not null)
         {
-            // 长期记忆召回先落一条用户轮次，再用「用户这句话 + 本轮剧情场景 + 近期对话」
-            // 去检索更早的往事。阶段 1 走纯 BM25，不增加任何 LLM 调用。
-            _memoryStore?.ObserveTurn("user", userInput, now);
+            // Recall sees the previous conversation; persist this turn after answering so it cannot rank itself.
             _history.Add(new ChatMessage("user", userInput));
         }
 
@@ -270,6 +288,7 @@ public sealed class ReactAgent : IAgentConversation
         // 最后一轮的检索过程与沉浸判定结论随结果回传：在线评测要能看见「多级多次查询」
         // 与「闸门判过什么」，而不是只能看到一个被替换过的最终台词。
         ReactRetrievalResult? lastRetrieval = null;
+        ConversationRecallResult? recall = null;
         IReadOnlyList<SpeechSegment> segments = [new SpeechSegment("……", "neutral", 0.3)];
         ImmersionVerdict? verdict = null;
         string? immersionPath = null;
@@ -291,23 +310,32 @@ public sealed class ReactAgent : IAgentConversation
         trace?.Key("历史", $"{historyBeforeTurn.Length} 条");
         trace?.Key("记忆", memory.Length == 0 ? "无" : $"{memory.Length} 字");
 
-        // observe 阶段：检索 → 起草 → 沉浸判定。判定不过就**换一个新的检索提示词重新走一遍 RAG**，
-        // 再重新起草——出戏往往源于证据本身不对（检索到了系统/元信息口径的材料），
-        // 只修最终那句话的字面治不了根。轮次有上限，用尽后退回闸门给的兜底台词。
-        for (var attempt = 0; ; attempt++)
+        // ── 两层重试：先**生成级**（带证据、按闸门给的修改要求重做）→ 再**检索级**（换检索词重走 RAG）──
+        //
+        // 为什么必须分开：出戏的原因有两类，代价差一个数量级。
+        //   · 表述问题（复读、语气、没接住问题）→ 同一份证据重做一次就够，一次 LLM 调用；
+        //   · 证据本身不对（检索到系统/元信息口径的材料）→ 改措辞治不了根，必须重查，代价是一整套检索。
+        // 旧实现把两者绑死：闸门内部先**无证据**地自由重写，重写完还不过才换检索词——
+        // 于是最便宜的那条路反而绕开了证据与整套事实校验。
+        //
+        // 闸门在这里只出「修改要求」（ImmersionVerdict.Instructions），**重新生产由本方法负责**，
+        // 因为只有它手里有本轮的证据。
+        var constraints = new List<string>();
+        var accepted = false;
+        for (var retrievalAttempt = 0; !accepted; retrievalAttempt++)
         {
             // 主动搭话不做剧情检索：没有用户提问就没有可校验的问题，检索结果只会变成自我加戏。
             // 剧情断言必须由用户明确提问，走同一条检索 / 校验链。
-            var retrievalQuery = attempt == 0 ? userInput : ReviseRetrievalQuery(userInput, verdict);
-            if (attempt > 0)
+            var retrievalQuery = retrievalAttempt == 0 ? userInput : ReviseRetrievalQuery(userInput, verdict);
+            if (retrievalAttempt > 0)
             {
-                trace?.Section($"沉浸判定没过 → 换检索词重来（第 {attempt} 次重试）");
+                trace?.Section($"检索级重试：换检索词重走 RAG（第 {retrievalAttempt} 次）");
                 trace?.Key("新查询", retrievalQuery ?? "");
             }
             var planWatch = Stopwatch.StartNew();
-            var reactRetrieval = !isProactive && _storyTool is not null && retrievalQuery is not null
-                ? await _reactRetrieval!.RunAsync(retrievalQuery, _history.TakeLast(8).ToArray(), ct).ConfigureAwait(false)
-                : null;
+            if (!isProactive && retrievalQuery is not null)
+                recall = await _recall.RunAsync(retrievalQuery, historyBeforeTurn, now, ct).ConfigureAwait(false);
+            var reactRetrieval = recall?.Story;
             planWatch.Stop();
             planMs += planWatch.Elapsed.TotalMilliseconds;
             story = reactRetrieval?.EvidencePool;
@@ -317,27 +345,15 @@ public sealed class ReactAgent : IAgentConversation
                 observation += $"\n{reactRetrieval.Observation}";
             if (story is not null && story.Status != StoryStatus.Bypass)
                 observation += $"\n- story_archive: {story.Status}; {story.Trace.RetrievalMode}; {story.Evidence.Count} evidence; {story.Trace.ElapsedMs:F0}ms";
-            if (attempt == 0)
+            if (retrievalAttempt == 0)
                 await PublishAsync(new AgentStageEvent(
                     AgentStage.Observe,
                     observation,
                     DateTimeOffset.Now), ct).ConfigureAwait(false);
 
-            var longTermMemory = "";
-            if (_memoryRetriever is not null)
-            {
-                // 当前窗口里已经有的内容不必重复注入，否则同一句话会在提示词里出现两遍。
-                var exclude = _history
-                    .Select(message => ConversationMemoryStore.Fingerprint(message.Role, message.Content))
-                    .ToHashSet(StringComparer.Ordinal);
-                var hits = _memoryRetriever.Retrieve(new MemoryQuery(
-                    userInput,
-                    CharacterEvidenceTexts(story),
-                    now,
-                    exclude,
-                    MaxResults: 4));
-                longTermMemory = _memoryRetriever.BuildPromptSection(hits, now);
-            }
+            var longTermMemory = _memoryRetriever?.BuildPromptSection(recall?.Memories ?? [], now, 1800) ?? "";
+            if (story is not null)
+                story = story with { ConversationMemories = recall?.Memories ?? [] };
 
             // 原声召回用「整轮上下文」而不是「用户这一句话」：
             // 用户问「你和钟离什么关系」时，字面上跟任何一句台词都不重合，但本轮检索到的
@@ -349,70 +365,183 @@ public sealed class ReactAgent : IAgentConversation
                 // 用户在表达现实难过时不推台词库里的俏皮话，只保留本轮剧情逐字命中的原声。
                 AllowLibrary: story?.Status != StoryStatus.Comfort)) ?? [];
 
-            var prompt = _promptBuilder.Build(new AgentPromptContext(
+            // 证据定稿后不再变——生成级重试复用它，只有检索级重试才会换掉它。
+            var basePrompt = _promptBuilder.Build(new AgentPromptContext(
                 _persona,
                 observation,
                 memory,
                 voiceCandidates,
                 _tools.ContainsKey("document_reader"),
                 IsProactive: isProactive,
-                LongTermMemory: longTermMemory));
+                LongTermMemory: longTermMemory,
+                RecallIntent: recall?.Intent ?? ""));
 
-            storyAnswer = null;
-            string rawReply;
-            var composeWatch = Stopwatch.StartNew();
-            if (story is not null && story.Status is not (StoryStatus.Bypass or StoryStatus.Playful or StoryStatus.Comfort))
+            // 严格协议用尽后允许**松协议重做一次**：格式失败只该损失"可校验性"，
+            // 不该损失整条回答——否则用户停在恒定兜底句上。
+            var relaxed = false;
+            for (var generationAttempt = 0; ; generationAttempt++)
             {
-                storyAnswer = await _storyComposer
-                    .ComposeAsync(_llm, prompt, _history, story, voiceCandidates, ct)
-                    .ConfigureAwait(false);
-                rawReply = storyAnswer.Reply;
+                // 松协议那一次要去掉「只返回 JSON / 绑定 evidence_ids」这类**格式类**要求：
+                // 它们与"不要输出 JSON"直接矛盾，模型收到打架的指令只会给一句最保险的短回答（实测 17 字）。
+                // 内容类要求（回应问题、不编造、口吻）必须保留。
+                var constraint = BuildRetryConstraint(
+                    relaxed ? RelaxedConstraints(constraints) : constraints, userInput, isProactive, relaxed);
+                var prompt = constraint.Length == 0 ? basePrompt : basePrompt + "\n\n" + constraint;
+
+                storyAnswer = null;
+                string rawReply;
+                var composeWatch = Stopwatch.StartNew();
+                if (story is not null && story.Status is not (StoryStatus.Bypass or StoryStatus.Playful or StoryStatus.Comfort))
+                {
+                    // 约束作为独立参数传入：Composer 内部拼成「人设 + 证据 JSON + 修改要求」，
+                    // 保证重做时**证据和修改要求同时在场**。松协议那一次仍然带证据，只是不要 JSON。
+                    storyAnswer = relaxed
+                        ? await _storyComposer
+                            .ComposeRelaxedAsync(_llm, basePrompt, _history, story, voiceCandidates, constraint, ct)
+                            .ConfigureAwait(false)
+                        : await _storyComposer
+                            .ComposeAsync(_llm, basePrompt, _history, story, voiceCandidates, constraint, ct)
+                            .ConfigureAwait(false);
+                    rawReply = storyAnswer.Reply;
+                }
+                else
+                {
+                    var tone = story?.Status switch {
+                        StoryStatus.Playful => "\n本轮是玩梗/假设。可以俏皮接话，明确这是想象，不声称官方发生过。",
+                        StoryStatus.Comfort => "\n用户在表达现实的难过。温柔认真陪伴，不推销丧葬业务，不拿逝者开玩笑，不查剧情抢走话题。",
+                        _ => "" };
+                    rawReply = await _llm.CompleteAsync(prompt + tone, _history, ct).ConfigureAwait(false);
+                }
+                composeWatch.Stop();
+                composeMs += composeWatch.Elapsed.TotalMilliseconds;
+
+                // ── 一级修复：**本地确定性修复**（零 LLM）──
+                // 结构 / 引用 / 格式类的契约问题（占实测失败的大头）本可以就地改好，
+                // 不该占用生成级重试预算，更不该把整个回合拖进"重生成 → 换检索词 → 兜底"。
+                // 这里只做确定性变换，修完内部会重新校验；修不动才交给下面重生成。
+                if (storyAnswer is { Path: "validation-fallback", RawReply.Length: > 0 } && story is not null)
+                {
+                    var allowedVoices = voiceCandidates.Select(c => c.Clip.Id)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var repaired = StoryAnswerComposer.TryLocalRepair(storyAnswer.RawReply, story, allowedVoices);
+                    if (repaired is not null)
+                    {
+                        trace?.Note($"本地确定性修复成功（原问题：{string.Join("、", storyAnswer.Issues)}）→ 不重生成");
+                        storyAnswer = repaired;
+                        rawReply = repaired.Reply;
+                    }
+                    else
+                    {
+                        trace?.Note($"本地修复无解（{string.Join("、", storyAnswer.Issues)}）→ 交给重生成");
+                    }
+                }
+
+                segments = _segmentParser.Parse(rawReply);
+                if (segments.Count == 0)
+                    segments = [new SpeechSegment("……", "neutral", 0.3)];
+
+                // **每次生成尝试都留痕**：闸门判定**之前**的稿子 + 模型原始回包。
+                // 只记最终答复会让"改了三次到底改了什么"完全不可见；
+                // 而校验失败时 storyAnswer.Reply 已经是降级后的兜底话，
+                // 不看原始回包就只能猜模型是不是压根没按协议回。
+                trace?.Section($"生成尝试 {generationAttempt + 1}" + (relaxed ? "（松协议）" : ""));
+                trace?.Key("草稿", storyAnswer?.Reply ?? rawReply);
+                if (storyAnswer is not null)
+                    trace?.Key("作答路径", storyAnswer.Issues.Count == 0
+                        ? storyAnswer.Path
+                        : $"{storyAnswer.Path} · 校验 {string.Join("、", storyAnswer.Issues)}");
+                trace?.Key("原始回包", DescribeRawReply(storyAnswer?.RawReply));
+
+                // Composer 自己降级过（模型挂了 / 契约校验没过）→ **这一版不算数**。
+                // 为什么必须单独判：那句兜底话本身不出戏，闸门会放行，于是重试机制根本不会触发，
+                // 用户就永远看到「唔，让我再理一理」——实测在线 100 例里有 62 例是这么来的。
+                // 这里把 Composer 的校验问题也变成修改要求，交给同一份证据重做。
+                var degraded = storyAnswer is not null &&
+                               storyAnswer.Path.Contains("fallback", StringComparison.Ordinal);
+
+                ImmersionOutcome? outcome = null;
+                if (_immersion is not null && degraded)
+                {
+                    // 契约已经判定这一版不可用，闸门再去评**降级后的兜底句**没有任何信息量：
+                    // 那句恒定台词当然接不住用户问题（实测评审员给 0.05 —— 判得没错，只是评错了对象），
+                    // 还白花一次评审调用，并往下一轮约束里塞进与内容无关的要求。
+                    trace?.Key("闸门", "未运行（Composer 已按契约降级，评那句兜底话没有意义）");
+                }
+                else if (_immersion is not null)
+                {
+                    // 沉浸判定：聊天窗口里绝不允许出现任何出戏内容。
+                    // 审查用的历史就是演员本轮看到的那段（含刚加入的用户消息），
+                    // 评审员在临时历史上工作，审查过程不会写回 _history。
+                    var gateWatch = Stopwatch.StartNew();
+                    outcome = await _immersion.ReviewAsync(new ImmersionRequest(
+                        _persona.Name,
+                        prompt,
+                        rawReply,
+                        segments,
+                        _history.ToArray(),
+                        userInput,
+                        isProactive,
+                        SafeFallback(),
+                        longTermMemory), ct).ConfigureAwait(false);
+                    gateWatch.Stop();
+                    gateMs += gateWatch.Elapsed.TotalMilliseconds;
+                    segments = outcome.Segments;
+                    verdict = outcome.Verdict;
+                    var path = generationAttempt == 0 ? outcome.Path : $"{outcome.Path}/gen-retry-{generationAttempt}";
+                    immersionPath = retrievalAttempt == 0 ? path : $"{path}/observe-retry-{retrievalAttempt}";
+                    // 只记违规类型，不记任何文本片段——日志不得含模型正文或用户输入。
+                    _diagnostics.Turn(Guid.NewGuid().ToString("N"), isProactive ? "proactive" : "user",
+                        "immersion", immersionPath,
+                        outcome.Verdict.KindsSummary, segmentCount: segments.Count,
+                        issues: outcome.Verdict.Violations.Select(v => v.Kind.ToString()).Distinct().ToArray());
+                    trace?.Key("闸门", $"{immersionPath} · {outcome.Verdict.KindsSummary} · 连贯 {outcome.Verdict.Coherence:F2}");
+                }
+
+                var passed = outcome?.Verdict.Passed ?? true;
+                if (passed && !degraded) { accepted = true; break; }
+
+                var blocking = outcome is not null &&
+                               outcome.Verdict.Violations.Any(v => ImmersionGate.IsBlocking(v.Kind));
+                if (generationAttempt >= _immersionOptions.MaxGenerationAttempts)
+                {
+                    // 严格协议用尽。若这次失败是"模型没按格式回"（validation-fallback）而不是出戏，
+                    // 再给一次**松协议**机会：仍然带同一份证据，只是不要 JSON。
+                    // 实测这条路径上"因为格式丢掉整条回答"是兜底句的最大来源。
+                    if (degraded && !relaxed && !blocking && storyAnswer?.Path == "validation-fallback")
+                    {
+                        relaxed = true;
+                        trace?.Note("严格协议用尽 → 松协议重做（仍带证据，不要求 JSON）");
+                        continue;
+                    }
+
+                    // 生成级用尽：只有硬违规才继续往检索级走；
+                    // 软违规、或"闸门放行但 Composer 降级成了兜底句"，都在这里收下
+                    // ——一句略显重复的角色台词好过固定兜底，而兜底句再糟也只是最后手段。
+                    if (!blocking)
+                    {
+                        accepted = true;
+                        trace?.Note(degraded
+                            ? $"生成级重试用尽，仍是兜底句（{storyAnswer?.Path}）→ 放行"
+                            : $"生成级重试用尽，仅剩软违规（{outcome?.Verdict.KindsSummary}）→ 放行");
+                    }
+                    break;
+                }
+
+                // 修改要求**累积**而不是替换：只带最新一条会让两类问题来回震荡（A→B→A→B）。
+                if (outcome is not null) constraints.AddRange(outcome.Verdict.Instructions);
+                constraints.AddRange(DegradedInstructions(storyAnswer));
+                trace?.Note($"→ 不采纳，重做第 {generationAttempt + 1} 次"
+                    + (degraded ? $"（契约问题：{string.Join("、", storyAnswer!.Issues)}）" : "")
+                    + (outcome is null ? "" : $"（闸门：{outcome.Verdict.KindsSummary}）"));
             }
-            else
-            {
-                var tone = story?.Status switch {
-                    StoryStatus.Playful => "\n本轮是玩梗/假设。可以俏皮接话，明确这是想象，不声称官方发生过。",
-                    StoryStatus.Comfort => "\n用户在表达现实的难过。温柔认真陪伴，不推销丧葬业务，不拿逝者开玩笑，不查剧情抢走话题。",
-                    _ => "" };
-                rawReply = await _llm.CompleteAsync(prompt + tone, _history, ct).ConfigureAwait(false);
-            }
-            composeWatch.Stop();
-            composeMs += composeWatch.Elapsed.TotalMilliseconds;
 
-            segments = _segmentParser.Parse(rawReply);
-            if (segments.Count == 0)
-                segments = [new SpeechSegment("……", "neutral", 0.3)];
-
-            if (_immersion is null) break;
-
-            // 沉浸判定：聊天窗口里绝不允许出现任何出戏内容。
-            // 审查用的历史就是演员本轮看到的那段（含刚加入的用户消息），
-            // 评审员在临时历史上工作，审查过程不会写回 _history。
-            var gateWatch = Stopwatch.StartNew();
-            var outcome = await _immersion.ReviewAsync(new ImmersionRequest(
-                _persona.Name,
-                prompt,
-                rawReply,
-                segments,
-                _history.ToArray(),
-                userInput,
-                isProactive,
-                SafeFallback(),
-                longTermMemory), ct).ConfigureAwait(false);
-            gateWatch.Stop();
-            gateMs += gateWatch.Elapsed.TotalMilliseconds;
-            segments = outcome.Segments;
-            verdict = outcome.Verdict;
-            immersionPath = attempt == 0 ? outcome.Path : $"{outcome.Path}/observe-retry-{attempt}";
-            // 只记违规类型，不记任何文本片段——日志不得含模型正文或用户输入。
-            _diagnostics.Turn(Guid.NewGuid().ToString("N"), isProactive ? "proactive" : "user",
-                "immersion", attempt == 0 ? outcome.Path : $"{outcome.Path}/observe-retry-{attempt}",
-                outcome.Verdict.KindsSummary, segmentCount: segments.Count,
-                issues: outcome.Verdict.Violations.Select(v => v.Kind.ToString()).Distinct().ToArray());
-
-            if (outcome.Verdict.Passed) break;
-            if (attempt >= _immersionOptions.MaxObserveRetries) break;
+            if (accepted) break;
+            if (retrievalAttempt >= _immersionOptions.MaxRetrievalRetries) break;
         }
+
+        // 两层都用尽仍然只有硬违规 → 角色化兜底台词（绝不把出戏内容放给用户）。
+        if (!accepted)
+            segments = [new SpeechSegment(SafeFallback(), "neutral", 0.35)];
 
         var reply = string.Join('\n', segments.Select(segment => segment.Text));
 
@@ -472,13 +601,15 @@ public sealed class ReactAgent : IAgentConversation
 
         _history.Add(new ChatMessage("assistant", reply));
         // 角色说过的话同样进记忆库：她自己的承诺与说法也是长程一致性的依据。
+        if (userInput is not null) _memoryStore?.ObserveTurn("user", userInput, now);
         _memoryStore?.ObserveTurn("assistant", reply, now);
         await PublishAsync(new AgentStageEvent(
             AgentStage.Think,
             reply,
             DateTimeOffset.Now), ct).ConfigureAwait(false);
         return new TextResult(reason, observation, reply, segments)
-            { Story = story, StoryAnswer = storyAnswer, Immersion = verdict, ImmersionPath = immersionPath, Retrieval = lastRetrieval };
+            { Story = story, StoryAnswer = storyAnswer, Immersion = verdict, ImmersionPath = immersionPath, Retrieval = lastRetrieval, Recall = recall,
+                ToolRuns = (_observationCollector as ToolObservationCollector)?.LastResults ?? [] };
         }
         finally
         {
@@ -552,6 +683,96 @@ public sealed class ReactAgent : IAgentConversation
         if (kinds.Contains(ImmersionViolationKind.LanguageDrift)) hints.Add("中文原文台词");
         return hints.Count == 0 ? input : input + "；请只依据：" + string.Join('、', hints);
     }
+
+    /// <summary>
+    /// 把闸门给的修改要求拼成一段生成约束。
+    ///
+    /// 最后那条「只依据给出的资料」是**关键**：重写曾经是无证据的自由重写，模型会退回预训练记忆
+    /// ——对知名 IP 往往"看着对"，所以错得很隐蔽。带证据重做时必须显式禁止它引用资料之外的事实。
+    /// </summary>
+    private static string BuildRetryConstraint(
+        IReadOnlyList<string> instructions, string? userInput, bool isProactive, bool relaxed)
+    {
+        var builder = new StringBuilder();
+        if (relaxed)
+        {
+            // 松协议那一次：格式类要求已被 RelaxedConstraints 剔除，
+            // 但**内容类要求必须留下**——否则模型只会给一句最保险的短回答（实测 17 字）。
+            builder.Append("【本轮格式要求】上一版没有按输出格式返回，本轮改用宽松输出，内容要求不变。\n");
+        }
+        else
+        {
+            if (instructions.Count == 0)
+                return "";
+            builder.Append("【本轮修改要求】你上一版台词没有通过审查，必须重做。\n必须遵守：\n");
+            foreach (var instruction in instructions)
+                builder.Append($"- {instruction}\n");
+        }
+
+        builder.Append(isProactive || string.IsNullOrWhiteSpace(userInput)
+            ? "本轮是你主动搭话，没有用户提问；保持主动关心或闲聊的意图，但要与上文连贯、不要复读。\n"
+            : $"必须真正回应用户刚说的这句话：「{userInput}」。\n");
+        builder.Append("只依据上面给出的资料作答，资料里没有的不要补。\n");
+        builder.Append("不要解释、不要道歉、不要提到修改、审查、规则或模型这些字眼。");
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// 把 Composer 的校验问题翻译成下一版必须遵守的要求——**每个问题一条，不做拼接**。
+    ///
+    /// 为什么必须一条一条：松协议重做时要按条剔除格式类要求，
+    /// 而拼接成一整块会让"只返回 JSON"这一条把整块带走，连"必须真正回应用户"也一起丢掉。
+    /// </summary>
+    private static IReadOnlyList<string> DegradedInstructions(StoryAnswerResult? answer)
+    {
+        if (answer is null || answer.Issues.Count == 0)
+            return [];
+
+        return answer.Issues.Select(issue => issue switch
+        {
+            "invalid_json_contract" => "只返回规定的 JSON（answerability + segments），不要输出任何多余文字",
+            "missing_uncertainty" => "证据不足以完全确认时，必须明确说出哪一部分不确定",
+            "unknown_citation" or "missing_citation" => "每条 fact/quote 必须绑定资料里给出的 evidence_ids，不得引用未给出的 id",
+            "quote_not_verbatim" => "引用原话必须逐字照抄资料中的原句，不得改写",
+            "unsupported_number" => "不要写出资料原文里没有的数字",
+            "false_personal_experience" => "没亲历过的事不要用第一人称回忆，改用听闻或档案口吻",
+            "citation_leak" => "不要把证据 id 写进台词正文",
+            "text_length" => "每段不超过 100 字（原话引用不超过 240 字）",
+            "segment_count" => "只输出 1~3 段",
+            "action_format" => "动作旁白用全角括号，且不夹带事实",
+            "fact_in_unattributed_segment" => "thought/action 段里不要夹带经历、数量或人物关系",
+            "answerability" or "unknown_kind" or "emotion" => "严格按回答协议里的取值作答",
+            "missing_segments" or "segment_not_object" => "按协议用 segments 数组返回，每段是一个对象",
+            _ => "严格按上面的回答协议作答",
+        }).Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// 模型原始回包的结构特征 + 截断样本，供可读后端追踪使用。
+    ///
+    /// 为什么要看它：校验失败时 <c>StoryAnswerResult.Reply</c> 已被换成兜底句，
+    /// 只有原始回包能回答"模型到底回了什么"——是散文、是另一种 JSON 形状，
+    /// 还是被包在说明文字里。截断到 160 字符并把换行折成 ⏎，
+    /// 避免一条日志把整个协议 JSON（内含证据原文）灌进来。
+    /// </summary>
+    private static string DescribeRawReply(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return "（无：本轮未调用模型）";
+        var flat = raw.Replace('\r', ' ').Replace('\n', '⏎').Trim();
+        var head = flat.Length <= 160 ? flat : flat[..160] + "…";
+        return $"len={raw.Length} · 含花括号={raw.Contains('{')} · {head}";
+    }
+
+    /// <summary>
+    /// 松协议重做时剔掉**格式类**要求（JSON / evidence_ids），保留内容类要求。
+    /// 混在一起会让 prompt 自相矛盾，模型只能回一句最保险的短话。
+    /// </summary>
+    private static List<string> RelaxedConstraints(List<string> constraints)
+        => constraints
+            .Where(c => !c.Contains("JSON", StringComparison.Ordinal)
+                     && !c.Contains("evidence_ids", StringComparison.Ordinal))
+            .ToList();
 
     /// <summary>兜底台词也必须是角色本人会说的话——绝不能退回系统口吻。</summary>
     private string SafeFallback() => _persona.Name switch

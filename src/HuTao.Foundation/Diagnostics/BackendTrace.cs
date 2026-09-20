@@ -2,15 +2,30 @@
 
 namespace HuTao.Foundation.Diagnostics;
 
+/// <summary>一条随证据一起进上下文的行（模型实际会看到的原文）。</summary>
+public sealed record RetrievalTraceContextLine(string Id, string Speaker, string Text, bool IsAnchor);
+
+/// <summary>一次检索用到的查询文本：原句变体 / 概念扩展，以及它是否通过准入。</summary>
+public sealed record RetrievalTraceVariant(string Text, string Source, bool Admitted);
+
 /// <summary>一次 RAG 调用里被召回的一条证据（追踪日志用，只留可读所需字段）。</summary>
 public sealed record RetrievalTraceEvidence(
     string Id, string Speaker, string Text, double Score, double Coverage, string Chapter,
-    bool Exact, string MatchKind);
+    bool Exact, string MatchKind,
+    /// <summary>这条证据携带的上下文窗口——**模型真正读到的东西**，不只是锚点那一行。</summary>
+    IReadOnlyList<RetrievalTraceContextLine>? Context = null,
+    /// <summary>分数由哪几项构成（精确/覆盖/RRF/自称/记忆先验/实体/章节先验）。</summary>
+    IReadOnlyList<string>? ScoreParts = null);
 
 /// <summary>
-/// 一次 RAG 调用的**后端结果**。这是追踪日志的基本单位：
+/// 一次 RAG 调用的**全部过程与结果**。这是追踪日志的基本单位：
 /// 无论调用来自 agent 的某一轮、来自 <c>--query</c> 还是来自将来的别的调用方，
 /// 都从 <see cref="StoryRagService"/> 这一个咽喉点流出来，所以不会漏记。
+///
+/// **「全部」是字面意思**：不只是找到了什么，还包括每一段中间过程——
+/// 各通道各出了多少候选、排序前几名的分数由哪几项构成、谁被哪条闸门挡下、
+/// TopK 在哪一条截断、锚点有没有被重选、哪些上下文的行被字符预算裁掉、充分性给了什么结论。
+/// 只记结果不记过程时，日志能回答「找到了什么」，回答不了「为什么是它 / 为什么没找到」。
 /// </summary>
 public sealed record RetrievalTraceRecord(
     string Input,
@@ -22,18 +37,46 @@ public sealed record RetrievalTraceRecord(
     bool CacheHit,
     int Candidates,
     double ElapsedMs,
-    IReadOnlyList<string> Variants,
+    IReadOnlyList<RetrievalTraceVariant> Variants,
     IReadOnlyList<RetrievalTraceEvidence> Evidence,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    /// <summary>查询理解：路由判据、检索文本、自称/引号/追问标记、实体。</summary>
+    IReadOnlyList<string>? Plan = null,
+    /// <summary>各召回通道的候选数与并集/排序规模。</summary>
+    IReadOnlyList<string>? Channels = null,
+    /// <summary>排序阶段前若干候选与分数构成。</summary>
+    IReadOnlyList<RetrievalTraceCandidate>? Ranking = null,
+    /// <summary>候选闸门：谁被 MinScore / 去重 / 限量 / TopK 挡下。</summary>
+    IReadOnlyList<string>? Gates = null,
+    /// <summary>锚点重选日志。</summary>
+    IReadOnlyList<string>? Reselect = null,
+    /// <summary>字符预算裁剪日志。</summary>
+    IReadOnlyList<string>? Budget = null,
+    /// <summary>充分性策略的结论。</summary>
+    IReadOnlyList<string>? Sufficiency = null,
+    /// <summary>其它需要说明的过程（例如融合臂的分臂计数）。</summary>
+    IReadOnlyList<string>? Notes = null);
+
+/// <summary>排序阶段的一个候选（含分数构成）。</summary>
+public sealed record RetrievalTraceCandidate(
+    int Rank, string Id, string Speaker, string Text,
+    double Score, double Coverage, bool Exact, string Kind,
+    IReadOnlyList<string>? Parts = null);
 
 /// <summary>
-/// 面向人阅读的后端追踪日志（agent + RAG 的运行结果）。
+/// 一次 RAG 调用的**后端结果**。这是追踪日志的基本单位：
+/// 无论调用来自 agent 的某一轮、来自 <c>--query</c> 还是来自将来的别的调用方，
+/// 都从 <see cref="StoryRagService"/> 这一个咽喉点流出来，所以不会漏记。
+/// </summary>
+
+/// <summary>
+/// 面向阅读的后端追踪日志（agent + RAG 的运行结果）。
 ///
 /// **与 <see cref="LocalDiagnosticLog"/> 的分工，别混**：
 /// - `LocalDiagnosticLog` 是**技术诊断**：JSON 行、只记阶段/路径/异常类型/计数，
 ///   契约是「不存用户输入、模型正文、密钥」——它的用途是排查崩溃与统计。
 /// - 本类相反：它是**给人读的运行叙事**，会包含用户输入、召回到的原文、草稿与最终答复。
-///   所以它默认只写本机（`%LOCALAPPDATA%\HuTaoCompanion\logs\`）、有大小上限与轮转、
+///   默认只写本机（`%LOCALAPPDATA%\HuTaoCompanion\logs\`）、有大小上限与轮转、
 ///   可用 `HU_TAO_TRACE=off` 整体关掉，且**绝不进入角色历史或任何对外通道**。
 ///
 /// 之所以要单独有这么一份：出问题时真正要看的是「这一轮到底检索了什么、召回了哪几行、
@@ -57,7 +100,10 @@ public sealed class BackendTrace
     {
         FilePath = path;
         Enabled = enabled;
-        EvidenceLines = Math.Clamp(evidenceLines, 0, 20);
+        // 0 = **不截断，全部列出**。默认就是 0：这份日志的用途是排查检索过程，
+        // 「只列前 3 条证据」会把「第 4 条其实是关键行」这种情况直接藏掉。
+        // 嫌长可以显式设 HU_TAO_TRACE_EVIDENCE=3。
+        EvidenceLines = Math.Clamp(evidenceLines, 0, 200);
         MaxBytes = maxBytes;
     }
 
@@ -106,7 +152,7 @@ public sealed class BackendTrace
             path = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "HuTaoCompanion", "logs", "backend-trace.log");
-        return new BackendTrace(path, ReadFlag("HU_TAO_TRACE"), ReadInt("HU_TAO_TRACE_EVIDENCE", 3),
+        return new BackendTrace(path, ReadFlag("HU_TAO_TRACE"), ReadInt("HU_TAO_TRACE_EVIDENCE", 0),
             ReadInt("HU_TAO_TRACE_MAX_MB", 8) * 1024L * 1024L);
     }
 
@@ -167,20 +213,64 @@ public sealed class BackendTrace
         var cache = record.CacheHit ? " · 命中缓存" : "";
         sb.AppendLine($"{prefix}召回 ▸ 臂 {record.Strategy}{scope} · 候选 {record.Candidates} · " +
                       $"用时 {record.ElapsedMs:F1}ms{cache}");
-        // 只列**短**变体：变体表里还有「归一化后的整句拼接」这类超长串，
-        // 它们既读不动也不带新信息（原句上面已经打过），列出来只会把日志变成一堵墙。
-        var readable = record.Variants.Where(v => v.Length <= 40).Take(4).ToArray();
-        if (readable.Length > 0)
-            sb.AppendLine($"{prefix}检索词 ▸ {string.Join(" | ", readable.Select(v => Shorten(v, 30)))}");
+
+        // ── ① 查询理解 ──
+        foreach (var line in record.Plan ?? [])
+            sb.AppendLine($"{prefix}  {line}");
+        // ── ② 检索词：**全部列出、不再过滤**，并标明它是原句变体还是概念扩展 ──
+        if (record.Variants.Count > 0)
+        {
+            sb.AppendLine($"{prefix}检索词 ▸ 共 {record.Variants.Count} 条" +
+                          (record.Variants.Any(v => !v.Admitted) ? "（含未通过准入的）" : ""));
+            foreach (var variant in record.Variants)
+                sb.AppendLine($"{prefix}  {(variant.Admitted ? "✔" : "✘")} [{variant.Source}] {Shorten(variant.Text, 160)}");
+        }
+        // ── ③ 通道贡献 ──
+        foreach (var line in record.Channels ?? [])
+            sb.AppendLine($"{prefix}通道 ▸ {line}");
+        // ── ④ 排序与分数构成：回答「为什么是它」 ──
+        if (record.Ranking is { Count: > 0 })
+        {
+            sb.AppendLine($"{prefix}排序前 {record.Ranking.Count} 名（分数构成）:");
+            foreach (var candidate in record.Ranking)
+                sb.AppendLine($"{prefix}  {candidate.Rank,2}. {candidate.Score:F3}/{candidate.Coverage:F3}" +
+                              (candidate.Exact ? " exact" : "") +
+                              $"  {candidate.Speaker}：{Shorten(candidate.Text, 60)}" +
+                              $"\n{prefix}      = {string.Join(" + ", candidate.Parts ?? [])}");
+        }
+        // ── ⑤ 闸门：谁被挡下、为什么 ──
+        if (record.Gates is { Count: > 0 })
+        {
+            sb.AppendLine($"{prefix}闸门 ▸ 挡下 {record.Gates.Count} 条:");
+            foreach (var line in record.Gates)
+                sb.AppendLine($"{prefix}  ✘ {line}");
+        }
+        // ── ⑥ 锚点重选 ──
+        foreach (var line in record.Reselect ?? [])
+            sb.AppendLine($"{prefix}重锚 ▸ {line}");
+        // ── ⑦ 证据：**默认全部**（evidenceLines<=0 表示不截断）＋ 每条的实际上下文 ──
+        var shown = evidenceLines <= 0 ? record.Evidence : record.Evidence.Take(evidenceLines).ToArray();
         sb.AppendLine($"{prefix}证据 {record.Evidence.Count} 条"
-                      + (evidenceLines < record.Evidence.Count ? $"（只列前 {evidenceLines} 条）" : ""));
-        foreach (var item in record.Evidence.Take(Math.Max(0, evidenceLines)))
+                      + (shown.Count < record.Evidence.Count ? $"（只列前 {shown.Count} 条）" : "（全部）"));
+        foreach (var item in shown)
         {
             var exact = item.Exact ? " ·exact" : "";
             sb.AppendLine($"{prefix}  {item.Score:F3} / {item.Coverage:F3}{exact}  {item.Speaker}：{Shorten(item.Text, 150)}");
             sb.AppendLine($"{prefix}      [{item.Id}] 章节 {item.Chapter} · 命中 {item.MatchKind}");
+            if (item.ScoreParts is { Count: > 0 })
+                sb.AppendLine($"{prefix}      分数构成 = {string.Join(" + ", item.ScoreParts)}");
+            // 上下文是**模型真正读到的内容**：锚点单独标出，其余是窗口邻行。
+            foreach (var line in item.Context ?? [])
+                sb.AppendLine($"{prefix}      {(line.IsAnchor ? "▸锚点" : "  上下文")} [{line.Id}] {line.Speaker}：{Shorten(line.Text, 120)}");
         }
-        foreach (var warning in record.Warnings.Take(4))
+        // ── ⑧ 字符预算裁剪 / 充分性结论 / 其它说明 ──
+        foreach (var line in record.Budget ?? [])
+            sb.AppendLine($"{prefix}预算 ▸ {line}");
+        foreach (var line in record.Sufficiency ?? [])
+            sb.AppendLine($"{prefix}充分性 ▸ {line}");
+        foreach (var line in record.Notes ?? [])
+            sb.AppendLine($"{prefix}说明 ▸ {line}");
+        foreach (var warning in record.Warnings)
             sb.AppendLine($"{prefix}  ⚠ {Shorten(warning, 200)}");
     }
 

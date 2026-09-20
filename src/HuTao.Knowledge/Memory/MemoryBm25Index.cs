@@ -95,8 +95,10 @@ internal sealed class MemoryBm25Index
             }
         }
 
+        // In a one-record store even an exact rare term has IDF=0.288.
+        var minimumMatchedIdf = Math.Min(MinMatchedIdf, Math.Log(1 + (_documents.Count - 0.5) / 1.5));
         return raw
-            .Where(pair => matchedIdf[pair.Key] >= MinMatchedIdf)
+            .Where(pair => matchedIdf[pair.Key] >= minimumMatchedIdf)
             .Select(pair => (
                 _documents[pair.Key],
                 Relevance: Math.Clamp(matchedIdf[pair.Key] / totalIdf, 0, 1),

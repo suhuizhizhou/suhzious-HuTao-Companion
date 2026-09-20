@@ -55,7 +55,16 @@ public sealed class RetrievalMemory(int capacity = 24)
         _askedQueries.Add(turn.Query);
         foreach (var e in turn.Evidence) _heldEvidence[e.Id] = e;
         foreach (var fact in turn.Facts) _heldFacts.Add(fact);
-        while (_turns.Count > capacity) _turns.RemoveFirst();
+        while (_turns.Count > Math.Max(1, capacity)) _turns.RemoveFirst();
+        _heldEvidence.Clear();
+        _askedQueries.Clear();
+        _heldFacts.Clear();
+        foreach (var retained in _turns)
+        {
+            _askedQueries.Add(retained.Query);
+            foreach (var evidence in retained.Evidence) _heldEvidence[evidence.Id] = evidence;
+            foreach (var fact in retained.Facts) _heldFacts.Add(fact);
+        }
     }
 
     /// <summary>最近 n 轮问过的查询（倒序），给下一轮改写当输入。</summary>

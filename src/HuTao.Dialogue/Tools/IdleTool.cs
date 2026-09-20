@@ -7,6 +7,8 @@ namespace HuTao.Dialogue.Tools;
 public sealed class IdleTool : IAgentTool
 {
     public string Name => "idle";
+    public AgentToolCategory Category => AgentToolCategory.Observation;
+    public ToolInputSchema InputSchema => ToolInputSchema.Empty;
     public string Description => "检测用户空闲了多久（秒），判断是否在忙";
 
     public Task<string> ExecuteAsync(string? input = null, CancellationToken ct = default)

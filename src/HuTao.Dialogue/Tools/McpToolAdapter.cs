@@ -29,6 +29,8 @@ public sealed class McpToolAdapter : IAgentTool
         _source = source;
         _descriptor = descriptor;
         Policy = policy;
+        InputSchema = ToolInputSchema.FromJson(descriptor.InputSchema ??
+            throw new ArgumentException("external_tool_schema_required"));
     }
 
     public string Name => _descriptor.Name;
@@ -38,6 +40,8 @@ public sealed class McpToolAdapter : IAgentTool
         : _descriptor.Description;
 
     public AgentToolPolicy Policy { get; }
+    public bool UsesJsonArguments => true;
+    public ToolInputSchema InputSchema { get; }
 
     public Task<string> ExecuteAsync(string? input = null, CancellationToken ct = default)
         => _source.CallToolAsync(_descriptor.Name, input, ct);
@@ -65,7 +69,15 @@ public sealed class McpToolAdapter : IAgentTool
         {
             var descriptors = await source.ListToolsAsync(ct).ConfigureAwait(false);
             log?.Invoke($"[tools] {source.SourceName} 提供 {descriptors.Count} 个工具");
-            return descriptors.Select(d => (IAgentTool)new McpToolAdapter(source, d, policy)).ToArray();
+            var tools = new List<IAgentTool>();
+            foreach (var descriptor in descriptors)
+            {
+                try { tools.Add(new McpToolAdapter(source, descriptor, policy)); }
+                catch (Exception ex) when (ex is ArgumentException or System.Text.Json.JsonException or
+                    InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
+                { log?.Invoke($"[tools] {descriptor.Name} schema unsupported: {ex.GetType().Name}"); }
+            }
+            return tools;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -66,6 +66,25 @@ public sealed class MemoryRetriever
             candidates = _index.Search(text, topK);
         }
 
+        return Rank(query, candidates);
+    }
+
+    public IReadOnlyList<MemoryRecord> SemanticCandidates(MemoryQuery query, int limit = 32) =>
+        !_options.Enabled ? [] : _store.Snapshot()
+            .Where(r => !r.Superseded && r.Speaker != "assistant" &&
+                query.ExcludeFingerprints?.Contains(r.Fingerprint) != true &&
+                (query.IncludeExpired || r.ValidUntil is null || r.ValidUntil >= query.Now))
+            .OrderByDescending(r => r.Importance).ThenByDescending(r => r.ObservedAt)
+            .Take(Math.Clamp(limit, 0, 32)).ToArray();
+
+    public IReadOnlyList<MemoryHit> RetrieveSelected(MemoryQuery query, IReadOnlySet<string> ids) =>
+        !_options.Enabled || query.MaxResults <= 0 ? [] : Rank(query, _store.Snapshot()
+            .Where(r => ids.Contains(r.Id)).Select(r => (r, 1d, 0d)).ToArray())
+            .Select(h => h with { Reason = "semantic-selection; " + h.Reason }).ToArray();
+
+    private IReadOnlyList<MemoryHit> Rank(MemoryQuery query,
+        IReadOnlyList<(MemoryRecord Record, double Relevance, double Raw)> candidates)
+    {
         var hits = new List<MemoryHit>();
         foreach (var (record, relevance, raw) in candidates)
         {
@@ -136,7 +155,8 @@ public sealed class MemoryRetriever
                 flags.Add("偏好");
             var label = flags.Count == 0 ? scope : $"{scope}·{string.Join('/', flags)}";
 
-            var line = $"- [{label}] {hit.Record.Text}\n";
+            var speaker = hit.Record.Speaker switch { "user" => "用户说", "assistant" => "你曾说（不能据此认定用户事实）", _ => "提炼记忆" };
+            var line = $"- [memory:{hit.Record.Id}; {label}; {speaker}] {hit.Record.Text}\n";
             if (used + line.Length > maxCharacters)
                 break;
             builder.Append(line);
