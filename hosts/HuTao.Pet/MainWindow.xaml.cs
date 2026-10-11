@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Media;
 using System.Windows;
 using System.Windows.Controls;
@@ -18,8 +18,11 @@ using HuTao.Foundation.Diagnostics;
 
 namespace HuTao.Pet;
 
-/// <summary>一个可切换的角色主题。</summary>
-internal sealed record CharacterTheme(
+/// <summary>
+/// 一个可切换的角色主题。**public** 是因为聊天客户端的消息气泡工厂要按它着色
+/// （<c>ChatShell.MessageVisualFactory.For</c> 的参数），而不一致的可访问性会直接编译失败。
+/// </summary>
+public sealed record CharacterTheme(
     Color Shell, Color Accent, Color AccentDark, Color Header,
     Color Border, Color Text, Color AssistantBubble, Color Replay,
     Color Thinking, Color ThinkingText);
@@ -47,10 +50,32 @@ public partial class MainWindow : Window
     private MemoryMaintenance? _memoryMaintenance;
     private ProactiveScheduler? _scheduler;
     private AgentRuntimeFactory? _runtimeFactory;
+
+    /// <summary>聊天客户端注入的共享运行时（为 null 时自己建一套）。</summary>
+    private readonly AgentRuntimeFactory? _injectedFactory;
+    private readonly ITtsEngine? _injectedTts;
+    private AgentRuntime? _runtime;
+    private bool _closingRuntime;
+    private bool _runtimeClosed;
+    private Task _initialization=Task.CompletedTask;
+    private Task _characterSwitchTask=Task.CompletedTask;
+    private Task[] _backgroundTasks=[];
+    private Task _userTurn=Task.CompletedTask;
+    private Task _documentTask=Task.CompletedTask;
+    private readonly PendingRuntimeCleanup _pendingRuntimeCleanup=new();
     private ChatLogStore _store = null!;
+    /// <summary>
+    /// 当前角色的情境台词服务（兜底 / 提醒 / 冷落都说人话，且必须是**她本人**的话）。
+    /// 以前这些台词写死在 <c>CurrentCharacter.Id switch</c> 里，而 default 分支是胡桃的口吻，
+    /// 于是安魂曲会说"本堂主"。现在一律问它，缺了会中性兜底并后台补生成。
+    /// </summary>
+    private HuTao.Persona.ScriptedLines _scripted = HuTao.Persona.ScriptedLines.Empty;
     private readonly List<ChatEntry> _entries = [];
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _audioPlaybackGate = new(1, 1);
+    private ConversationPrivacyStamp? _chatPrivacy;
+    private readonly System.Windows.Threading.DispatcherTimer _privacyTimer=new() {Interval=TimeSpan.FromSeconds(1)};
+    private SoundPlayer? _activePlayer;
     private readonly Random _random = new();
     private string? _repoRoot;
     private bool _talking;
@@ -71,30 +96,80 @@ public partial class MainWindow : Window
     private CharacterConfig CurrentCharacter => Characters[_currentIndex];
     private CharacterTheme CurrentTheme => CurrentCharacter.Theme;
 
-    public MainWindow()
+    public MainWindow():this(null,null) { }
+
+    internal MainWindow(Func<Task>? initialize,Action? savePreferences)
+        : this(initialize, savePreferences, null, null) { }
+
+    /// <summary>
+    /// <paramref name="sharedFactory"/>/<paramref name="sharedTts"/> 是聊天客户端传进来的
+    /// 同一套运行时。**必须复用**：进程里只应有一个 TTS 引擎（它内部有参考音频缓存，
+    /// 多开会互相踩），LLM 与 AgentPool 同理。为 null 时（<c>--pet</c> 独立启动）
+    /// 桌宠自己建一套。
+    /// </summary>
+    internal MainWindow(
+        Func<Task>? initialize,
+        Action? savePreferences,
+        AgentRuntimeFactory? sharedFactory,
+        ITtsEngine? sharedTts)
     {
         InitializeComponent();
-        InitializeWindowPresentation();
-        InitializeTrayIcon();
-        Loaded += async (_, _) => await InitAsync();
-        Closing += (_, _) =>
+        _injectedFactory = sharedFactory;
+        _injectedTts = sharedTts;
+        _privacyTimer.Tick+=(_,_)=>SynchronizeChatPrivacy();
+        _privacyTimer.Start();
+        if(initialize is null)
         {
-            SaveWindowPreferences();
-            DisposeTrayIcon();
-            _cts.Cancel();
-            if (_tts is IAsyncDisposable disposable)
+            InitializeWindowPresentation();
+            InitializeTrayIcon();
+        }
+        Loaded += async (_, _) =>
+        {
+            if(_cts.IsCancellationRequested)return;
+            _initialization=initialize is null?InitAsync():initialize();
+            try {await _initialization;}
+            catch(OperationCanceledException) when(_cts.IsCancellationRequested) { }
+            catch(Exception ex)
             {
-                try
-                {
-                    // WPF 进程退出后不能继续完成 fire-and-forget 清理；短暂等待，
-                    // 确保由桌宠启动的 GPT-SoVITS 常驻子进程被一并关闭。
-                    disposable.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
-                }
-                catch
-                {
-                    // 退出清理失败不阻止窗口关闭。
-                }
+                LocalDiagnosticLog.Default.Write("runtime.initialize",ex);
+                SwitchButton.ToolTip="初始化未完成，请查看本机诊断日志。可以关闭窗口后重试。";
             }
+        };
+        Closing += async (_, args) =>
+        {
+            if(_runtimeClosed)return;
+            args.Cancel=true;
+            if(_closingRuntime)return;
+            _closingRuntime=true;
+            _cts.Cancel();
+            _privacyTimer.Stop();_activePlayer?.Stop();
+            try
+            {
+                if(_chatRoom is not null && !await _chatRoom.RequestCloseAsync())return;
+                try {await _initialization;}catch(OperationCanceledException){}
+                catch(Exception ex){LocalDiagnosticLog.Default.Write("knowledge.initialization_shutdown",ex);}
+                try {await _characterSwitchTask;}
+                catch(Exception ex){LocalDiagnosticLog.Default.Write("knowledge.switch_shutdown",ex);}
+                try {await Task.WhenAll(_backgroundTasks);}catch(OperationCanceledException) when(_cts.IsCancellationRequested){}
+                catch(Exception ex){LocalDiagnosticLog.Default.Write("knowledge.background_shutdown",ex);}
+                try {await Task.WhenAll(_userTurn,_documentTask);}catch(OperationCanceledException) when(_cts.IsCancellationRequested){}
+                catch(Exception ex){LocalDiagnosticLog.Default.Write("knowledge.user_tasks_shutdown",ex);}
+                await _audioPlaybackGate.WaitAsync();
+                _audioPlaybackGate.Release();
+                if(_runtime is not null)await _runtime.DisposeAsync();
+                await _pendingRuntimeCleanup.RetryAsync();
+                if(_tts is IAsyncDisposable disposable)await disposable.DisposeAsync();
+                if(savePreferences is null)SaveWindowPreferences();else savePreferences();
+                DisposeTrayIcon();
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                _runtimeClosed=true;Close();
+            }
+            catch(Exception ex)
+            {
+                LocalDiagnosticLog.Default.Write("knowledge.shutdown",ex);
+                SwitchButton.ToolTip="保存或退出清理尚未完成，请排除文件占用或磁盘问题后再次关闭。";
+            }
+            finally {_closingRuntime=false;}
         };
     }
 
@@ -109,7 +184,9 @@ public partial class MainWindow : Window
         Console.WriteLine(HuTao.Foundation.Diagnostics.BackendTrace.Default.Enabled
             ? $"[trace] 可读后端日志: {HuTao.Foundation.Diagnostics.BackendTrace.Default.FilePath}"
             : "[trace] 已关闭（HU_TAO_TRACE=off）");
-        _runtimeFactory = new AgentRuntimeFactory(
+        // 聊天客户端注入了共享运行时就直接用；否则（--pet 独立启动）自己建一套。
+        // 复用的意义不只是省内存：TTS 引擎内部有参考音频缓存，开两份会互相踩。
+        _runtimeFactory = _injectedFactory ?? new AgentRuntimeFactory(
             _repoRoot,
             _ => TtsRuntimeFactory.CreateGptSovits(
                 _repoRoot,
@@ -117,6 +194,8 @@ public partial class MainWindow : Window
                 log: Console.WriteLine),
             Console.WriteLine,
             approveTool: ConfirmToolAsync);
+        if (_injectedTts is not null)
+            _tts = _injectedTts;
         // 前台感知默认开启（桌宠要陪伴就得知道你在忙什么）；显式设成 false/0/no 才关闭。
         _allowAppAwareness = ReadBooleanEnvironment("HU_TAO_ALLOW_APP_AWARENESS", defaultValue: true);
         UpdateAwarenessButton();
@@ -126,7 +205,7 @@ public partial class MainWindow : Window
         _scheduler = new ProactiveScheduler(
             intervalSeconds: 600, cooldownSeconds: 1200, minIdleSeconds: 300);
         // 调度回调回到 UI 线程，与 Send/角色切换共享同一个说话门，避免 bool 跨线程竞态。
-        _ = _scheduler.RunLoopAsync(ct => Dispatcher.InvokeAsync(async () =>
+        var proactiveTask = _scheduler.RunLoopAsync(ct => Dispatcher.InvokeAsync(async () =>
         {
             if (!_talking && !_characterSwitchLoopRunning && _pendingCharacterIndex is null &&
                 _scheduler.ShouldTrigger())
@@ -134,17 +213,17 @@ public partial class MainWindow : Window
         }).Task.Unwrap(), _cts.Token);
 
         // 休息提醒 + 冷落别扭（只启动一次）
-        _ = RestReminderLoopAsync(_cts.Token);
-        _ = IgnoreLoopAsync(_cts.Token);
+        _backgroundTasks=[proactiveTask,RestReminderLoopAsync(_cts.Token),IgnoreLoopAsync(_cts.Token)];
     }
 
     private async Task LoadCharacterAsync(int index)
     {
+        AgentRuntime? candidate=null;
         try
         {
-            _currentIndex = index;
+            await _pendingRuntimeCleanup.RetryAsync();
+            _cts.Token.ThrowIfCancellationRequested();
             var ch = Characters[index];
-            ApplyTheme(ch);
             var runtime = (_runtimeFactory ?? throw new InvalidOperationException(
                     "Agent 运行时工厂尚未初始化。"))
                 .Create(
@@ -152,22 +231,38 @@ public partial class MainWindow : Window
                     sharedTts: _tts,
                     allowAppAwareness: () => _allowAppAwareness,
                     documentProgress: ReportDocumentProgress);
+            candidate=runtime;
+            var nextPrivacy=runtime.Agent.PrivacyStamp;
+            var nextStore=new ChatLogStore(
+                Path.Combine(_repoRoot!, "data", $"chat_log_{ch.Id}.json"),
+                audioSizeLimitBytes:512L*1024*1024,
+                privacy:()=>runtime.Agent.PrivacyStamp,generatedAudioRoot:Path.Combine(_repoRoot!,"data","voice","generated"));
+            var nextEntries=nextStore.Load();
+            runtime.Agent.RestoreHistory(nextEntries.Where(e=>!SpeechDeliverySession.IsLegacyFailureBubble(e.Role,e.Text))
+                .TakeLast(20).Select(e=>new ChatMessage(e.Role,e.Text)),nextPrivacy);
+            _cts.Token.ThrowIfCancellationRequested();
+            var previousRuntime=_runtime;
+            if(previousRuntime is not null)await previousRuntime.DisposeAsync();
+            _runtime=runtime;
+            candidate=null;
+            _currentIndex=index;
             // 即使某个角色没有声线，也保留已经启动的共享引擎，切回其他角色时可继续复用。
             _tts ??= runtime.Tts;
             _documentReader = runtime.DocumentReader;
             _agent = runtime.Agent;
+            _scripted = runtime.Persona.Scripted;
+            _chatPrivacy=_agent.PrivacyStamp;
             _memoryMaintenance = runtime.Memory;
+            _store = nextStore;
+            _entries.Clear();
+            _entries.AddRange(nextEntries);
+            ApplyTheme(ch);
 
             Title = $"{ch.Name}桌宠";
             TitleText.Text = $"{ch.Emoji} {ch.Name}";
             TitleText.ToolTip = $"{ch.Name} · {ch.Title}";
 
             // 每个角色独立的记忆文件，避免记忆串味
-            _store = new ChatLogStore(
-                Path.Combine(_repoRoot!, "data", $"chat_log_{ch.Id}.json"),
-                audioSizeLimitBytes: 512L * 1024 * 1024);
-            _entries.Clear();
-            _entries.AddRange(_store.Load());
 
             BubblePanel.Children.Clear();
             foreach (var e in _entries)
@@ -175,9 +270,6 @@ public partial class MainWindow : Window
                     AddBubble(e.Text, e.Role == "user", e.Audio, record: false);
 
             // 原始历史文件不删除；旧版程序的诊断气泡不再显示，也不注入角色上下文。
-            var recent = _entries.Where(e => !SpeechDeliverySession.IsLegacyFailureBubble(e.Role, e.Text))
-                .TakeLast(20).Select(e => new ChatMessage(e.Role, e.Text));
-            _agent.RestoreHistory(recent);
 
             _lastUserReply = DateTime.UtcNow;
             _nextIgnoreMin = 10;
@@ -190,13 +282,21 @@ public partial class MainWindow : Window
             // 角色加载属于系统操作，不将技术异常伪装成角色台词。
             SwitchButton.ToolTip = "角色暂时未能加载，请稍后重试。诊断已写入本机日志。";
         }
+        finally
+        {
+            if(candidate is not null)
+            {
+                try {await _pendingRuntimeCleanup.RetireAsync(candidate);}
+                catch(Exception ex){LocalDiagnosticLog.Default.Write("character.candidate_cleanup",ex);}
+            }
+        }
 
     }
 
     /// <summary>一次说话：先「正在忙」占位，再按顺序显示气泡并播放对应语音。</summary>
     private async Task SayAsync(bool proactive, string? userInput, CancellationToken ct)
     {
-        if (_agent is null || _talking)
+        if (_agent is null || _talking || _cts.IsCancellationRequested)
             return;
         _talking = true;
 
@@ -214,24 +314,36 @@ public partial class MainWindow : Window
             foreach (var segment in segments)
             {
                 ct.ThrowIfCancellationRequested();
+                segment.DemandDelivery();
                 var seg = segment.Text;
+                var audioPrivacy=_chatPrivacy;
                 var audioPath = await speech.PrepareAudioAsync(segment,
-                    token => _agent.SynthesizeAsync(seg, segment.Emotion, segment.Intensity, token), ct);
+                    async token =>
+                    {
+                        var result=await _agent.SynthesizeAsync(seg,segment.Emotion,segment.Intensity,token);
+                        try {segment.DemandDelivery();return result;}
+                        catch(OperationCanceledException)
+                        {if(result is not null)_store.DiscardGeneratedAudio(result.AudioPath,audioPrivacy);throw;}
+                    }, ct);
 
                 await Dispatcher.InvokeAsync(() =>
                 {
+                    segment.DemandDelivery();
                     if (thinking is not null && BubblePanel.Children.Contains(thinking))
                     {
                         BubblePanel.Children.Remove(thinking);
                         thinking = null;
                     }
-                    AddBubble(seg, isUser: false, audioPath);
+                    AddBubble(seg, isUser: false, audioPath,ownsGeneratedAudio:segment.OriginalAudioPath is null);
                     displayed = true;
                 });
 
                 // 等本段实际播放完再继续下一段，避免连续气泡的语音重叠。
                 if (audioPath is not null && File.Exists(audioPath))
-                    await PlayAudioAsync(audioPath, ct);
+                {
+                    segment.DemandDelivery();
+                    await PlayAudioAsync(audioPath, ct,segment.DemandDelivery);
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -241,13 +353,10 @@ public partial class MainWindow : Window
             await Dispatcher.InvokeAsync(() =>
             {
                 // 未获得文字的错误才使用角色兜底；TTS 错误已在段落级吞下，不走这里。
+                // 台词来自人设数据，不再按角色 id 写死（否则新角色会说胡桃的话）。
                 if (!displayed && !proactive)
-                    AddBubble(CurrentCharacter.Id switch
-                    {
-                        "klee" => "唔，可莉刚刚没跟上……你再说一次好不好？",
-                        "furina" => "容我整理一下思绪……刚才那句，能再说一次吗？",
-                        _ => "唔，本堂主刚刚走了下神……你再说一次好不好？"
-                    }, isUser: false, record: false);
+                    AddBubble(_scripted.Get(HuTao.Persona.ScriptedLines.Situation.Distracted),
+                        isUser: false, record: false);
             });
         }
         finally
@@ -291,18 +400,22 @@ public partial class MainWindow : Window
     private static bool IsActionSegment(string text) => SpeechText.IsAction(text);
 
     /// <summary>串行播放语音；同步播放放到后台线程，避免阻塞 WPF 界面。</summary>
-    private async Task PlayAudioAsync(string path, CancellationToken ct = default)
+    private async Task PlayAudioAsync(string path, CancellationToken ct = default,Action? demandDelivery=null)
     {
-        if (!File.Exists(path))
+        if (_cts.IsCancellationRequested || !File.Exists(path))
             return;
 
         await _audioPlaybackGate.WaitAsync(ct);
         try
         {
+            if(_cts.IsCancellationRequested)return;
+            demandDelivery?.Invoke();
             await Task.Run(() =>
             {
                 using var player = new SoundPlayer(path);
-                player.PlaySync();
+                _activePlayer=player;
+                try {demandDelivery?.Invoke();player.PlaySync();}
+                finally {_activePlayer=null;}
             });
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -349,7 +462,8 @@ public partial class MainWindow : Window
                 if ((DateTime.UtcNow - lastIdleRemind).TotalMinutes >= 5)
                 {
                     lastIdleRemind = DateTime.UtcNow;
-                    await SayReminderAsync("你都坐了好一会儿啦，起来活动活动筋骨吧~", ct);
+                    await SayReminderAsync(
+                        _scripted.Get(HuTao.Persona.ScriptedLines.Situation.RestReminder), ct);
                 }
                 activeSince = DateTime.UtcNow;
             }
@@ -378,7 +492,7 @@ public partial class MainWindow : Window
             var silentMin = (DateTime.UtcNow - _lastUserReply).TotalMinutes;
             if (silentMin >= _nextIgnoreMin)
             {
-                var msg = IgnoreMessage(CurrentCharacter.Id, silentMin);
+                var msg = IgnoreMessage(silentMin);
                 await SayReminderAsync(msg, ct);
 
                 // 重新计时；下次阈值不固定（10~15 分钟随机）
@@ -388,37 +502,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private static string IgnoreMessage(string characterId, double silentMin)
+    /// <summary>
+    /// 冷落别扭。四档语气**不再按角色 id 写死**：曾经是
+    /// <c>if (characterId == "furina") … if (characterId == "klee") … else 胡桃</c>，
+    /// 于是没列到的角色（安魂曲）一律说胡桃的话。现在只挑"哪一档"，
+    /// 具体说什么由该角色的 <c>fallbacks.json</c> 决定，缺了会中性兜底并后台补生成。
+    /// </summary>
+    private string IgnoreMessage(double silentMin)
     {
-        if (characterId == "furina")
+        var situation = silentMin switch
         {
-            return silentMin switch
-            {
-                < 20 => "观众怎么突然安静了？本水神可还在等你的回应呢。",
-                < 35 => "这场独角戏演得也太久了……你该不会忘了我吧？",
-                < 50 => "喂！让主演独自等这么久，可不是合格观众的礼仪！",
-                _ => "本水神宣布暂停演出！除非你回来好好解释，哼！",
-            };
-        }
-
-        if (characterId == "klee")
-        {
-            return silentMin switch
-            {
-                < 20 => "唔？你去哪儿啦？可莉还在这里等你一起玩呢。",
-                < 35 => "已经好久没看到你了，可莉都快把蹦蹦炸弹数完啦……",
-                < 50 => "你再不回来，可莉就要去找琴团长问问你去哪儿了！",
-                _ => "呜……可莉真的等了好久。回来陪可莉说说话，好不好？",
-            };
-        }
-
-        return silentMin switch
-        {
-            < 20 => "喂——怎么不理本堂主啦？哼哼，我可记着呢。",
-            < 35 => "都过去好久了，你真的一点都不想本堂主吗？有点小难过……",
-            < 50 => "本堂主有点生气啦！你再不回来，往生堂的优惠可就要过期了哦！",
-            _ => "哼！本堂主真的要闹脾气了！这么久都不理我，等你回来可要好好补偿！",
+            < 20 => HuTao.Persona.ScriptedLines.Situation.IgnoredMild,
+            < 35 => HuTao.Persona.ScriptedLines.Situation.IgnoredModerate,
+            < 50 => HuTao.Persona.ScriptedLines.Situation.IgnoredLong,
+            _ => HuTao.Persona.ScriptedLines.Situation.IgnoredVeryLong,
         };
+        return _scripted.Get(situation);
     }
 
     private static int ParseIdleSeconds(string idleStr)
@@ -459,8 +558,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>加一条气泡（角色语音带「重播」按钮），并写入聊天记录。</summary>
-    private void AddBubble(string text, bool isUser, string? audio = null, bool record = true)
+    private void AddBubble(string text, bool isUser, string? audio = null, bool record = true,bool ownsGeneratedAudio=false)
     {
+        if(record)SynchronizeChatPrivacy();
         if (IsActionSegment(text))
             audio = null;
 
@@ -491,7 +591,14 @@ public partial class MainWindow : Window
                 Cursor = Cursors.Hand,
                 Tag = path,
             };
-            btn.Click += async (_, _) => await PlayAudioAsync(path);
+            var privacy=_chatPrivacy;
+            btn.Click += async (_, _) =>
+            {
+                SynchronizeChatPrivacy();
+                if(privacy!=_agent?.PrivacyStamp)return;
+                await PlayAudioAsync(path,demandDelivery:()=>
+                {if(privacy!=_agent?.PrivacyStamp)throw new OperationCanceledException("Conversation privacy changed.");});
+            };
             panel.Children.Add(btn);
         }
 
@@ -517,7 +624,7 @@ public partial class MainWindow : Window
         {
             _entries.Add(new ChatEntry(
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                isUser ? "user" : "assistant", text, audio));
+                isUser ? "user" : "assistant", text, audio) {Privacy=_chatPrivacy,OwnsGeneratedAudio=ownsGeneratedAudio});
             PruneAndSave();
         }
     }
@@ -538,10 +645,31 @@ public partial class MainWindow : Window
         catch (Exception ex) { LocalDiagnosticLog.Default.Write("chat.save", ex); }
     }
 
+    private void SynchronizeChatPrivacy()
+    {
+        if(_agent is null || _store is null)return;
+        try
+        {
+            var current=_agent.PrivacyStamp;if(current==_chatPrivacy)return;
+            _activePlayer?.Stop();
+            _entries.Clear();BubblePanel.Children.Clear();UpdateCompactBubble("");
+            _entries.AddRange(_store.Load());_chatPrivacy=current;
+            foreach(var entry in _entries)AddBubble(entry.Text,entry.Role=="user",entry.Audio,record:false);
+            _agent.RestoreHistory(_entries.TakeLast(20).Select(e=>new ChatMessage(e.Role,e.Text)),_chatPrivacy);
+        }
+        catch(Exception ex) {LocalDiagnosticLog.Default.Write("chat.privacy",ex);}
+    }
+
     // ── UI 事件 ──
     private void Send_Click(object sender, RoutedEventArgs e) => Send();
 
-    private void Awareness_Click(object sender, RoutedEventArgs e)
+    private void Awareness_Click(object sender, RoutedEventArgs e) => ToggleAwareness();
+
+    /// <summary>
+    /// 切换应用状态感知。**抽成无参方法**，好让聊天窗侧边栏也能走同一条路径
+    /// （见 <see cref="RailToggleAwareness"/>）——两边各写一份迟早会不一致。
+    /// </summary>
+    private void ToggleAwareness()
     {
         _allowAppAwareness = !_allowAppAwareness;
         UpdateAwarenessButton();
@@ -557,12 +685,18 @@ public partial class MainWindow : Window
         StatusText.Visibility = Visibility.Visible;
         _statusEpoch++;
         var epoch = _statusEpoch;
-        _ = Task.Delay(TimeSpan.FromSeconds(6)).ContinueWith(_ =>
-            Dispatcher.InvokeAsync(() =>
-            {
-                if (epoch == _statusEpoch)
-                    StatusText.Visibility = Visibility.Collapsed;
-            }), TaskScheduler.Default);
+        _ = HideStatusLaterAsync(epoch);
+    }
+
+    private async Task HideStatusLaterAsync(int epoch)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6),_cts.Token);
+            if(!_cts.IsCancellationRequested && epoch==_statusEpoch)
+                StatusText.Visibility=Visibility.Collapsed;
+        }
+        catch(OperationCanceledException) when(_cts.IsCancellationRequested) { }
     }
 
     private void InputBox_KeyDown(object sender, KeyEventArgs e)
@@ -574,28 +708,29 @@ public partial class MainWindow : Window
     private void Send()
     {
         var text = InputBox.Text.Trim();
-        if (text.Length == 0 || _agent is null || _talking)
+        if (text.Length == 0 || _agent is null || _talking || _cts.IsCancellationRequested)
             return;
         AddBubble(text, isUser: true);
         _scheduler?.NotifyConversationActivity();
         InputBox.Clear();
         _lastUserReply = DateTime.UtcNow; // 用户回复了，重置冷落计时
-        _ = SayAsync(proactive: false, userInput: text, _cts.Token);
+        _userTurn = SayAsync(proactive: false, userInput: text, _cts.Token);
     }
 
-    private void Clear_Click(object sender, RoutedEventArgs e)
+    private void Clear_Click(object sender, RoutedEventArgs e) => ClearConversation();
+
+    /// <summary>清空当前角色的聊天记录。抽成无参方法供侧边栏复用。</summary>
+    private void ClearConversation()
     {
+        if(_cts.IsCancellationRequested || _store is null)return;
         _store.Clear();
         _entries.Clear();
         _agent?.RestoreHistory([]);
         BubblePanel.Children.Clear();
-        var message = CurrentCharacter.Id switch
-        {
-            "hutao" => "聊天记录清空啦，重新聊点什么吧~",
-            "klee" => "可莉把旧的冒险故事收好啦！我们重新开始新的旅程吧~",
-            _ => "旧剧本已经收好，下一幕重新开始！",
-        };
-        AddBubble(message, isUser: false);
+        // 台词来自人设数据：以前这里按角色 id 选，只有胡桃和可莉有分支，
+        // 芙宁娜与安魂曲会走到 `_ =>` 那个中性句。现在统一走 ScriptedLines。
+        AddBubble(_scripted.Get(HuTao.Persona.ScriptedLines.Situation.HistoryCleared),
+            isUser: false);
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

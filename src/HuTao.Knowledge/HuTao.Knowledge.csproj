@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -6,8 +6,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Storage\Migrations\*.sql" />
     <ProjectReference Include="..\HuTao.Foundation\HuTao.Foundation.csproj" />
     <ProjectReference Include="..\HuTao.Persona\HuTao.Persona.csproj" />
     <ProjectReference Include="..\HuTao.Voice\HuTao.Voice.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
+    <PackageReference Include="Neo4j.Driver" Version="5.28.0" />
   </ItemGroup>
 </Project>

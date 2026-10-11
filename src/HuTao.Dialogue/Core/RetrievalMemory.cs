@@ -49,6 +49,11 @@ public sealed class RetrievalMemory(int capacity = 24)
 
     public bool HoldsFact(string fact) => _heldFacts.Contains(fact);
 
+    public void Clear()
+    {
+        _turns.Clear();_heldEvidence.Clear();_askedQueries.Clear();_heldFacts.Clear();
+    }
+
     public void Record(RetrievalTurn turn)
     {
         _turns.AddLast(turn);

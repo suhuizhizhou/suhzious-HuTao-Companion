@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 using HuTao.Dialogue.Core;
 using HuTao.Dialogue.Immersion;
 using HuTao.Knowledge.Memory;
@@ -9,11 +9,20 @@ using HuTao.Persona;
 /// </summary>
 internal static class MemoryChecks
 {
+    private static readonly AsyncLocal<bool> SqlBackend = new();
+    private static ConversationMemoryStore CreateStore(string path, MemoryOptions options)
+    {
+        if (!SqlBackend.Value) return new ConversationMemoryStore(path, options);
+        var db = new HuTao.Knowledge.Storage.SqliteKnowledgeDatabase(path + ".db");
+        var access = HuTao.Knowledge.Retrieval.KnowledgeAccessContext.ForSession("checks", "hutao", "desktop", []);
+        return new ConversationMemoryStore(path, options, repository: new SqlConversationMemoryRepository(db, access));
+    }
     private static readonly DateTimeOffset Now =
         new(2026, 3, 15, 10, 0, 0, TimeSpan.FromHours(8));
 
-    public static async Task<List<CheckResult>> RunAsync()
+    public static async Task<List<CheckResult>> RunAsync(bool sql = false)
     {
+        SqlBackend.Value = sql;
         var checks = new List<CheckResult>();
         void Check(string name, bool ok, string detail = "") => checks.Add(new(name, ok, detail));
         var root = Path.Combine(Path.GetTempPath(), "hutao-memory-checks-" + Guid.NewGuid().ToString("N"));
@@ -93,7 +102,7 @@ internal static class MemoryChecks
     private static void CheckStore(string root, Action<string, bool, string> check)
     {
         var path = Path.Combine(root, "store.json");
-        var store = new ConversationMemoryStore(path, new MemoryOptions());
+        var store = CreateStore(path, new MemoryOptions());
 
         var first = store.ObserveTurn("user", "我在做一个桌宠项目", Now);
         var duplicate = store.ObserveTurn("user", "我在做一个桌宠项目", Now.AddSeconds(30));
@@ -138,7 +147,7 @@ internal static class MemoryChecks
 
         // 持久化往返：新实例读回同样的条数。
         store.Flush();
-        var reopened = new ConversationMemoryStore(path, new MemoryOptions());
+        var reopened = CreateStore(path, new MemoryOptions());
         check("memory_persists_roundtrip", reopened.Count == store.Count,
             $"before={store.Count}; after={reopened.Count}");
         check("memory_persists_supersede", reopened.FindById(target.Id)?.Superseded == true, "取代关系应落盘");
@@ -149,7 +158,7 @@ internal static class MemoryChecks
     private static void CheckRetrieval(string root, Action<string, bool, string> check)
     {
         var path = Path.Combine(root, "retrieval.json");
-        var store = new ConversationMemoryStore(path, new MemoryOptions());
+        var store = CreateStore(path, new MemoryOptions());
         store.ObserveTurn("user", "我的猫叫大咪，特别爱吃鱼", Now.AddDays(-2));
         // 一批「最近」干扰项：让「最近」成为低 idf 的常见词，而「大咪」保持高 idf。
         // 小语料里 IDF 无法区分常见词与专有名词，这正是真实语料要替我们做的事。
@@ -186,7 +195,7 @@ internal static class MemoryChecks
             $"hits={excluded.Count}");
 
         // 同样相关时，新的排在前面。
-        var pair = new ConversationMemoryStore(Path.Combine(root, "recency.json"), new MemoryOptions());
+        var pair = CreateStore(Path.Combine(root, "recency.json"), new MemoryOptions());
         pair.ObserveTurn("user", "我在做桌宠项目甲", Now.AddDays(-20));
         pair.ObserveTurn("user", "我在做桌宠项目乙", Now.AddHours(-1));
         var ranked = new MemoryRetriever(pair)
@@ -196,7 +205,7 @@ internal static class MemoryChecks
             string.Join(" | ", ranked.Select(h => $"{h.Record.Text}@{h.Score:F2}")));
 
         // 过时信息保留可召回但明确标注并降权——隐藏会让角色更容易前后矛盾。
-        var stale = new ConversationMemoryStore(Path.Combine(root, "stale.json"), new MemoryOptions());
+        var stale = CreateStore(Path.Combine(root, "stale.json"), new MemoryOptions());
         stale.ObserveTurn("user", "下周要去杭州出差", Now.AddDays(-30));
         var staleHits = new MemoryRetriever(stale)
             .Retrieve(new MemoryQuery("杭州出差的事", [], Now, MaxResults: 3));
@@ -209,7 +218,7 @@ internal static class MemoryChecks
             section.Replace("\n", " / "));
 
         // 已被取代的记录不再作为事实出现。
-        var supersededStore = new ConversationMemoryStore(Path.Combine(root, "superseded.json"), new MemoryOptions());
+        var supersededStore = CreateStore(Path.Combine(root, "superseded.json"), new MemoryOptions());
         var old = supersededStore.ObserveTurn("user", "我住在上海老房子", Now.AddDays(-5))!;
         supersededStore.AddConsolidated("用户住在杭州", MemoryKind.Fact, 0.8, [old.Id], Now, Now, null, old.Id);
         var afterSupersede = new MemoryRetriever(supersededStore)
@@ -232,7 +241,7 @@ internal static class MemoryChecks
     private static async Task CheckConsolidationAsync(string root, Action<string, bool, string> check)
     {
         // 无 LLM 的启发式降级：只收敛用户自己说过的个人事实。
-        var store = new ConversationMemoryStore(Path.Combine(root, "consolidate.json"), new MemoryOptions());
+        var store = CreateStore(Path.Combine(root, "consolidate.json"), new MemoryOptions());
         store.ObserveTurn("user", "我是做桌宠项目的", Now.AddMinutes(-20));
         store.ObserveTurn("user", "记住我下周三要交论文", Now.AddMinutes(-19));
         store.ObserveTurn("user", "哈哈哈哈这也太好笑了", Now.AddMinutes(-18));
@@ -287,7 +296,7 @@ internal static class MemoryChecks
             parsed[1].ValidUntil is not null, parsed[1].ValidUntil?.ToString("O") ?? "null");
 
         // supersedes 生效：旧事实被标记取代而不是删除。
-        var supStore = new ConversationMemoryStore(Path.Combine(root, "supersede.json"), new MemoryOptions());
+        var supStore = CreateStore(Path.Combine(root, "supersede.json"), new MemoryOptions());
         var oldTurn = supStore.ObserveTurn("user", "我住在上海", Now.AddDays(-10))!;
         var oldFact = supStore.AddConsolidated(
             "用户住在上海", MemoryKind.Fact, 0.7, [oldTurn.Id], Now.AddDays(-10), Now.AddDays(-10), null, null);
@@ -308,7 +317,7 @@ internal static class MemoryChecks
             $"old_superseded={supStore.FindById(oldFact.Id)?.Superseded}");
 
         // 整合失败不推进游标，下次空闲可以重试。
-        var failing = new ConversationMemoryStore(Path.Combine(root, "failing.json"), new MemoryOptions());
+        var failing = CreateStore(Path.Combine(root, "failing.json"), new MemoryOptions());
         failing.ObserveTurn("user", "我是做桌宠项目的", Now);
         failing.Flush();
         var failConsolidator = new MemoryConsolidator(failing, new ThrowingLlm());
@@ -328,7 +337,7 @@ internal static class MemoryChecks
             ConsolidationIdle = TimeSpan.FromMinutes(3),
             ConsolidationCooldown = TimeSpan.FromMinutes(20),
         };
-        var store = new ConversationMemoryStore(Path.Combine(root, "maintenance.json"), options);
+        var store = CreateStore(Path.Combine(root, "maintenance.json"), options);
         var maintenance = new MemoryMaintenance(store, new MemoryConsolidator(store), options);
 
         store.ObserveTurn("user", "我是做桌宠项目的", Now);
@@ -357,7 +366,7 @@ internal static class MemoryChecks
             maintenance.ShouldRun(TimeSpan.FromMinutes(10), Now.AddMinutes(30)), "冷却结束后应恢复");
 
         var disabled = new MemoryOptions { EnableConsolidation = false };
-        var disabledStore = new ConversationMemoryStore(Path.Combine(root, "disabled.json"), disabled);
+        var disabledStore = CreateStore(Path.Combine(root, "disabled.json"), disabled);
         var disabledMaintenance = new MemoryMaintenance(disabledStore, new MemoryConsolidator(disabledStore), disabled);
         check("maintenance_respects_disable_switch",
             !disabledMaintenance.Enabled && !disabledMaintenance.ShouldRun(TimeSpan.FromDays(1), Now),

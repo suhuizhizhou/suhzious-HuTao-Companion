@@ -58,6 +58,8 @@ internal sealed class StoryLineIndex
     public static StoryLineIndex Load(string chaptersRoot, StoryLexicon? lexicon = null) =>
         new(StoryCorpus.Load(Path.GetDirectoryName(chaptersRoot)!, lexicon), lexicon ?? StoryLexicon.Empty);
 
+    internal static StoryLineIndex FromCorpus(StoryCorpus corpus, StoryLexicon lexicon) => new(corpus,lexicon);
+
     public IReadOnlyList<DialogueSearchHit> Search(string query, int topK, int windowSize, double minScore)
     {
         var plan = StoryQueryAnalyzer.Plan(query, _lexicon);

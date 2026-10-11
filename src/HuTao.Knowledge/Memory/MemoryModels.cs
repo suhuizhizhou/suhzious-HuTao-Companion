@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HuTao.Knowledge.Memory;
@@ -52,7 +52,25 @@ public sealed class MemoryRecord
     /// <summary>被哪次整合处理过；null 表示尚未提炼。</summary>
     [JsonPropertyName("consolidated_at")] public DateTimeOffset? ConsolidatedAt { get; set; }
 
+    /// <summary>
+    /// 这条记忆是**哪个角色**说的。
+    ///
+    /// 为什么必须有：记忆文件按角色分（memory_*.json），但文件里从来没写过"说话人是谁"。
+    /// 于是旧版（只有胡桃一个角色时）留下的记录会被检索出来、贴上
+    /// 「你曾说（不能据此认定用户事实）」喂给**另一个角色**——那个角色据此认定
+    /// "我自己说过'本堂主'"，随即模仿这个自称。
+    /// 实测证据：<c>memory_furina.json</c> 里躺着
+    /// <c>{"text":"记录已清空~ 本堂主可都忘光啦","speaker":"assistant"}</c>，"本堂主"出现 8 次、
+    /// "往生堂" 10 次——芙宁娜的长期记忆里装着胡桃的身份。
+    ///
+    /// 空字符串表示"来源不明"（旧数据），检索时按"可能不是本人"处理，不当作自己的话。
+    /// </summary>
+    [JsonPropertyName("persona")] public string Persona { get; set; } = "";
+
     [JsonIgnore] public bool Superseded => !string.IsNullOrEmpty(SupersededById);
+    [JsonIgnore] public bool ObservationTimeKnown {get;init;}=true;
+    /// <summary>SQL provenance pins, owned by the repository/host rather than model or legacy JSON.</summary>
+    [JsonIgnore] public Dictionary<string,long> SourceRevisions {get;set;}=new(StringComparer.Ordinal);
 }
 
 /// <summary>一次记忆检索的输入。ContextTexts 用来补足「用户这句话没说全」的话题。</summary>
@@ -104,6 +122,13 @@ public sealed record MemoryOptions
     public TimeSpan ConsolidationCooldown { get; init; } = TimeSpan.FromMinutes(20);
 
     public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// 当前角色名。<see cref="ConversationMemoryStore"/> 写入每条记录时盖上去，
+    /// 这样检索端就能区分"这是我说过的"与"这是别的角色留下的"。
+    /// 为空时新记录不带归属（等同旧数据），不会让任何东西崩掉。
+    /// </summary>
+    public string Persona { get; init; } = "";
 
     public void Validate()
     {

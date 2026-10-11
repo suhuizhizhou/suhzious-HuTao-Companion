@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="胡桃桌宠" Height="480" Width="350"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ShowInTaskbar="True" ResizeMode="NoResize">
+        Topmost="False" ShowInTaskbar="True" ResizeMode="NoResize">
     <Grid>
         <!-- 完整聊天模式。默认尺寸比旧版更小。 -->
         <Grid x:Name="FullModePanel">

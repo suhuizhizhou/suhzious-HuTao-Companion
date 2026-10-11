@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace HuTao.Persona;
 
@@ -16,6 +16,15 @@ public sealed class PersonaProfile
     /// 缺省时检索照常工作，只是不再做角色专属判断。
     /// </summary>
     public StoryLexicon Lexicon { get; init; } = StoryLexicon.Empty;
+
+    /// <summary>
+    /// 情境台词（fallbacks.json）：兜底、提醒、冷落、清空记录、剧情"没依据"这些
+    /// **由引擎触发、却必须由角色来说**的话。
+    ///
+    /// 引擎里不许再出现任何角色的具体台词——以前它们是 <c>switch</c> 的 <c>default</c> 分支，
+    /// 而那个 default 是胡桃的口吻，于是新角色一律串味。缺台词时这里会给中性语气并后台补生成。
+    /// </summary>
+    public ScriptedLines Scripted { get; init; } = ScriptedLines.Empty;
 
     /// <summary>
     /// 实际交给检索的词表。词表里没写自称时，至少把角色名当作自称——

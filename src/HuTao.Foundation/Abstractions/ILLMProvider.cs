@@ -18,6 +18,14 @@ public interface ILLMProvider
 /// <summary>一条对话消息。Role 取值：system / user / assistant。</summary>
 public sealed record ChatMessage(string Role, string Content);
 
+public sealed record LlmCompletion(string Text,int? PromptTokens,int? CompletionTokens,int HttpAttempts,string Model);
+public interface IMeteredLLMProvider : ILLMProvider
+{
+    int MaxOutputTokens { get; }
+    string ModelIdentity { get; }
+    Task<LlmCompletion> CompleteWithUsageAsync(string systemPrompt,IReadOnlyList<ChatMessage> history,CancellationToken ct=default);
+}
+
 /// <summary>
 /// 大模型**暂时不可用**（网络断了、对端重置连接、超时）。
 ///

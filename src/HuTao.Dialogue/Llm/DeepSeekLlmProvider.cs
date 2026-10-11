@@ -10,22 +10,28 @@ namespace HuTao.Dialogue.Llm;
 /// 通过环境变量 DEEPSEEK_API_KEY 提供密钥；模型默认 deepseek-chat。
 /// 与 MockLlmProvider 并列，都实现 ILLMProvider，靠 Name 区分、按配置切换。
 /// </summary>
-public sealed class DeepSeekLlmProvider : ILLMProvider
+public sealed class DeepSeekLlmProvider : IMeteredLLMProvider
 {
     private readonly HttpClient _http;
     private readonly string _apiKey;
     private readonly string _model;
     private readonly double _temperature;
+    private readonly int _transportRetries;
 
     public DeepSeekLlmProvider(
         string apiKey,
         string model = "deepseek-chat",
         string baseUrl = "https://api.deepseek.com",
-        double temperature = 0.9)
+        double temperature = 0.9,
+        int transportRetries = 3,
+        int maxOutputTokens = 1000)
     {
         _apiKey = apiKey;
         _model = model;
         _temperature = temperature;
+        _transportRetries = Math.Clamp(transportRetries,1,3);
+        if(maxOutputTokens is <1 or >8192)throw new ArgumentOutOfRangeException(nameof(maxOutputTokens));
+        MaxOutputTokens=maxOutputTokens;
         _http = new HttpClient
         {
             BaseAddress = new Uri(baseUrl),
@@ -34,11 +40,15 @@ public sealed class DeepSeekLlmProvider : ILLMProvider
     }
 
     public string Name => "deepseek";
+    public int MaxOutputTokens { get; }
+    public string ModelIdentity => _model + ":temperature=" + _temperature.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>传输层重试次数。只重试「连接类」错误，4xx 这类确定性错误立刻抛出。</summary>
-    private const int TransportRetries = 3;
 
-    public async Task<string> CompleteAsync(
+    public async Task<string> CompleteAsync(string systemPrompt,IReadOnlyList<ChatMessage> history,CancellationToken ct=default)
+        => (await CompleteWithUsageAsync(systemPrompt,history,ct).ConfigureAwait(false)).Text;
+
+    public async Task<LlmCompletion> CompleteWithUsageAsync(
         string systemPrompt,
         IReadOnlyList<ChatMessage> history,
         CancellationToken ct = default)
@@ -53,11 +63,12 @@ public sealed class DeepSeekLlmProvider : ILLMProvider
             model = _model,
             messages,
             temperature = _temperature,
-            max_tokens = 1000,
+            max_tokens = MaxOutputTokens,
             stream = false,
         });
 
         HttpResponseMessage? resp = null;
+        var attempts=0;
         try
         {
             // 长会话里偶发的连接重置是常态（实测见过 `SocketException 10054 远程主机强迫关闭`）。
@@ -66,20 +77,21 @@ public sealed class DeepSeekLlmProvider : ILLMProvider
             {
                 try
                 {
+                    attempts++;
                     using var req = new HttpRequestMessage(HttpMethod.Post, "/chat/completions");
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
                     req.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
                     resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
                     break;
                 }
-                catch (Exception ex) when (IsTransient(ex) && attempt < TransportRetries)
+                catch (Exception ex) when (IsTransient(ex) && attempt < _transportRetries)
                 {
                     await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsTransient(ex))
                 {
                     throw new LlmUnavailableException(
-                        $"DeepSeek 连接失败，已重试 {TransportRetries} 次：{ex.Message}", ex);
+                        $"DeepSeek 连接失败，共尝试 {_transportRetries} 次：{ex.Message}", ex);
                 }
             }
 
@@ -100,7 +112,13 @@ public sealed class DeepSeekLlmProvider : ILLMProvider
                 .GetProperty("content")
                 .GetString();
 
-            return content?.Trim() ?? "";
+            int? promptTokens=null,completionTokens=null;
+            if(doc.RootElement.TryGetProperty("usage",out var usage))
+            {
+                if(usage.TryGetProperty("prompt_tokens",out var p) && p.TryGetInt32(out var pv))promptTokens=pv;
+                if(usage.TryGetProperty("completion_tokens",out var c) && c.TryGetInt32(out var cv))completionTokens=cv;
+            }
+            return new(content?.Trim()??"",promptTokens,completionTokens,attempts,_model);
         }
         catch (OperationCanceledException)
         {

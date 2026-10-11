@@ -2,13 +2,22 @@ using HuTao.Foundation.Abstractions;
 
 namespace HuTao.Dialogue.Core;
 
+/// <summary>Model support review for an uncited conversational draft; not a strict factual proof.</summary>
+public sealed record ConversationSupportReview(bool Passed,IReadOnlyList<string> Issues,int Attempt,int SegmentCount);
+
 /// <summary>一条聊天气泡及其不展示给用户的语音元数据。</summary>
 public sealed record SpeechSegment(
     string Text,
     string Emotion,
     double Intensity,
     string? OriginalAudioPath = null,
-    string? OriginalVoiceId = null);
+    string? OriginalVoiceId = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Func<bool>? DeliveryAllowed {get;init;}
+    public void DemandDelivery()
+    {if(DeliveryAllowed?.Invoke()==false)throw new KnowledgeChangedException();}
+}
 
 /// <summary>Reason → Observe → Think 的文字结果。</summary>
 public sealed record TextResult(
@@ -17,6 +26,8 @@ public sealed record TextResult(
     string Reply,
     IReadOnlyList<SpeechSegment> Segments)
 {
+    public ConversationSupportReview? ConversationSupport {get;init;}
+    public HuTao.Knowledge.Rag.AnswerValidationLevel AnswerValidationLevel=>StoryAnswer?.ValidationLevel??HuTao.Knowledge.Rag.AnswerValidationLevel.Unchecked;
     public IReadOnlyList<HuTao.Dialogue.Tools.ToolRunResult> ToolRuns { get; init; } = [];
     public ConversationRecallResult? Recall { get; init; }
     public HuTao.Knowledge.Rag.StoryRagResult? Story { get; init; }
@@ -59,6 +70,8 @@ public sealed record AgentTurnResult(
     TtsResult? Audio,
     string Action)
 {
+    public ConversationSupportReview? ConversationSupport {get;init;}
+    public HuTao.Knowledge.Rag.AnswerValidationLevel AnswerValidationLevel=>StoryAnswer?.ValidationLevel??HuTao.Knowledge.Rag.AnswerValidationLevel.Unchecked;
     public IReadOnlyList<HuTao.Dialogue.Tools.ToolRunResult> ToolRuns { get; init; } = [];
     public ConversationRecallResult? Recall { get; init; }
     public HuTao.Knowledge.Rag.StoryRagResult? Story { get; init; }
@@ -66,6 +79,18 @@ public sealed record AgentTurnResult(
     public HuTao.Dialogue.Immersion.ImmersionVerdict? Immersion { get; init; }
     public string? ImmersionPath { get; init; }
     public ReactRetrievalResult? Retrieval { get; init; }
+
+    /// <summary>
+    /// 这一轮回复的分段（**一段 = 一个气泡**）。
+    ///
+    /// 为什么必须带出来：<see cref="Reply"/> 是拍平后的整段文本，拿它去渲染
+    /// 就只能得到一个大气泡——原版桌宠单聊的"多气泡 + 逐段语音不重叠"就是这么丢的。
+    /// 分段的权威解释只存在于解析器（它懂括号动作、情绪、原声），所以由这里携带，
+    /// 而不是让 UI 去猜换行。
+    ///
+    /// 空列表表示"没有分段信息"，调用方应退回把 <see cref="Reply"/> 当单段处理。
+    /// </summary>
+    public IReadOnlyList<SpeechSegment> Segments { get; init; } = [];
 }
 
 /// <summary>跨 UI、Agent 和 TTS 复用的文本判定规则。</summary>

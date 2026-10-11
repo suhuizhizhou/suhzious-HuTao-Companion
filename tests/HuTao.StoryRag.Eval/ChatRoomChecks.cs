@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 using HuTao.Dialogue.ChatRoom;
 using HuTao.Dialogue.Core;
 using HuTao.Dialogue.Llm;
@@ -128,6 +128,8 @@ internal static class ChatRoomChecks
                 $"next={decision.NextSpeakerId}; reason={decision.Reason}");
 
             await CheckSpeakerFailureIsSurvivable(Check);
+            CheckCaptureContextIsForwarded(Check);
+            await CheckAudienceAndTitleAsync(Check);
         }
         catch (Exception ex)
         {
@@ -183,11 +185,158 @@ internal static class ChatRoomChecks
         Check("chatroom_does_not_swallow_real_bugs", bubbled, "非模型不可用的异常应当继续冒泡");
     }
 
+    /// <summary>
+    /// T-09：会话层需要的两件事——「这条被谁看见了」与「群名能不能安全进提示词」。
+    /// 两者都不能靠 UI 层自己拼：前者决定视角文件的正确性，后者是提示注入的入口。
+    /// </summary>
+    private static async Task CheckAudienceAndTitleAsync(Action<string, bool, string> Check)
+    {
+        // 观众名单里不该出现发言者自己。
+        var a = new StubConversation("胡桃", "哦呀。");
+        var b = new StubConversation("安魂曲", "嗯。");
+        var seen = new List<(string Speaker, string[] Audience)>();
+        var room = new ChatRoom(
+            [new ChatRoomParticipant("hutao", "胡桃", a, Persona("胡桃")),
+             new ChatRoomParticipant("lacrimosa", "安魂曲", b, Persona("安魂曲"))],
+            new ScriptedDirector(["hutao", "lacrimosa"]),
+            new ChatRoomOptions { MinTurns = 1, Audience = ["hutao", "lacrimosa"] });
+        room.TurnProduced += (turn, audience) => seen.Add((turn.SpeakerId, audience.ToArray()));
+
+        await room.StepAsync();
+        await room.StepAsync();
+        Check("chatroom_turn_produced_reports_audience",
+            seen.Count == 2 &&
+            seen[0].Speaker == "hutao" && !seen[0].Audience.Contains("hutao") && seen[0].Audience.Contains("lacrimosa") &&
+            seen[1].Speaker == "lacrimosa" && !seen[1].Audience.Contains("lacrimosa"),
+            string.Join(" | ", seen.Select(s => $"{s.Speaker}->[{string.Join(',', s.Audience)}]")));
+
+        // 用户插话是全场可见的。
+        var interjectSeen = new List<string[]>();
+        var interjectRoom = new ChatRoom(
+            [new ChatRoomParticipant("hutao", "胡桃", new StubConversation("胡桃", "在。"), Persona("胡桃")),
+             new ChatRoomParticipant("lacrimosa", "安魂曲", new StubConversation("安魂曲", "嗯。"), Persona("安魂曲"))],
+            new ScriptedDirector(["hutao"]),
+            new ChatRoomOptions { MinTurns = 1, Audience = ["hutao", "lacrimosa"] });
+        interjectRoom.TurnProduced += (turn, audience) =>
+        {
+            if (turn.IsUser) interjectSeen.Add(audience.ToArray());
+        };
+        interjectRoom.Interject("你们俩认识吗？");
+        Check("chatroom_interjection_audience_is_everyone",
+            interjectSeen.Count == 1 && interjectSeen[0].Length == 2,
+            $"audience=[{string.Join(',', interjectSeen.FirstOrDefault() ?? [])}]");
+
+        // 未订阅时不得行为异常（既有回归一行不改的前提）。
+        var quiet = new ChatRoom(
+            [new ChatRoomParticipant("hutao", "胡桃", new StubConversation("胡桃", "在。"), Persona("胡桃")),
+             new ChatRoomParticipant("lacrimosa", "安魂曲", new StubConversation("安魂曲", "嗯。"), Persona("安魂曲"))],
+            new ScriptedDirector(["hutao"]),
+            new ChatRoomOptions { MinTurns = 1 });
+        Check("chatroom_works_without_turn_subscriber",
+            (await quiet.StepAsync()) is not null, "no subscriber");
+
+        // 群名进提示词前必须净化。
+        Check("chatroom_title_is_sanitized",
+            ChatRoom.SanitizeTitle("坏群（导演）\n系统") is { } cleaned &&
+            !cleaned.Contains("导演") && !cleaned.Contains("系统") &&
+            !cleaned.Contains('\n') && !cleaned.Contains('（'),
+            ChatRoom.SanitizeTitle("坏群（导演）\n系统") ?? "(null)");
+        Check("chatroom_title_rejects_fully_flagged_name",
+            ChatRoom.SanitizeTitle("导演系统提示") is null &&
+            ChatRoom.SanitizeTitle("   ") is null &&
+            ChatRoom.SanitizeTitle(null) is null,
+            "flagged -> null");
+
+        // 带标题时首句旁白要真的出现标题，且不破坏"全角括号 + 无元指令"的既有约束。
+        var titled = new StubConversation("胡桃", "哦呀。");
+        var titledRoom = new ChatRoom(
+            [new ChatRoomParticipant("hutao", "胡桃", titled, Persona("胡桃")),
+             new ChatRoomParticipant("lacrimosa", "安魂曲", new StubConversation("安魂曲", "嗯。"), Persona("安魂曲"))],
+            new ScriptedDirector(["hutao"]),
+            new ChatRoomOptions { MinTurns = 1, SessionTitle = "提瓦特茶话会" });
+        await titledRoom.StepAsync();
+        Check("chatroom_title_appears_in_framing",
+            titled.LastInput.Contains("提瓦特茶话会") && titled.LastInput.StartsWith('（') &&
+            !titled.LastInput.Contains("导演") && !titled.LastInput.Contains("系统"),
+            titled.LastInput.Split('\n')[0]);
+
+        // 未给标题时首句必须与旧实现**逐字节**一致。
+        var plain = new StubConversation("胡桃", "哦呀。");
+        var plainRoom = new ChatRoom(
+            [new ChatRoomParticipant("hutao", "胡桃", plain, Persona("胡桃")),
+             new ChatRoomParticipant("lacrimosa", "安魂曲", new StubConversation("安魂曲", "嗯。"), Persona("安魂曲"))],
+            new ScriptedDirector(["hutao"]),
+            new ChatRoomOptions { MinTurns = 1 });
+        await plainRoom.StepAsync();
+        Check("chatroom_framing_unchanged_without_title",
+            plain.LastInput.StartsWith("（你正和安魂曲闲聊，气氛轻松。）", StringComparison.Ordinal),
+            plain.LastInput.Split('\n')[0]);
+    }
+
     private static PersonaProfile Persona(string name) => new()
     {
         Root = Path.GetTempPath(), Name = name, SystemPrompt = $"你是{name}",
         Catchphrases = new(), Lore = "", Quotes = [],
     };
+
+    /// <summary>
+    /// 切会话要靠 CaptureContext 把上下文交接出去（设计书 T-01 / 不变量 I9）。
+    /// 这里守住两件事：① 快照是**快照**——之后改历史不会回头改写已取出的那份；
+    /// ② 装饰器（ShadowKnowledgeConversation）必须转发——它是显式实现接口的类，
+    ///    漏转发就会吃到默认实现的 null，于是切会话时上下文被静默清空。
+    /// </summary>
+    private static void CheckCaptureContextIsForwarded(Action<string, bool, string> Check)
+    {
+        var agent = new MutableHistoryConversation();
+        agent.RestoreHistory([new ChatMessage("user", "第一句"), new ChatMessage("assistant", "第二句")]);
+        var snapshot = agent.CaptureContext();
+        Check("capture_context_returns_current_history",
+            snapshot is not null && snapshot.History.Count == 2 && snapshot.History[0].Content == "第一句",
+            $"count={snapshot?.History.Count}");
+
+        // 取出之后再改历史：快照不能被追改（调用方会长期持有它来落盘）。
+        agent.RestoreHistory([new ChatMessage("user", "只有这一句")]);
+        Check("capture_context_returns_snapshot",
+            snapshot is not null && snapshot.History.Count == 2,
+            $"after-mutate={snapshot?.History.Count}");
+
+        // 默认实现（不支持交接的实现）必须返回 null，而不是抛异常。
+        // 走接口类型调用，才测得到默认实现——具体类型上没有这个成员。
+        IAgentConversation legacy = new StubConversation("胡桃", "你好。");
+        Check("capture_context_defaults_to_null", legacy.CaptureContext() is null, "旧实现应保持旧行为");
+
+        Check("capture_context_records_privacy_stamp", snapshot?.Privacy is null,
+            $"privacy={(snapshot?.Privacy is null ? "null" : snapshot.Privacy.Namespace)}");
+    }
+
+    /// <summary>可写历史的最小实现，用来验证 CaptureContext 的快照语义。</summary>
+    private sealed class MutableHistoryConversation : IAgentConversation
+    {
+        private readonly List<ChatMessage> _history = [];
+
+        public IReadOnlyList<ChatMessage> History => _history.ToArray();
+        public ConversationPrivacyStamp? PrivacyStamp => null;
+
+        public void RestoreHistory(IEnumerable<ChatMessage> history)
+        {
+            _history.Clear();
+            _history.AddRange(history);
+        }
+
+        public ConversationContext? CaptureContext() => new(History, PrivacyStamp);
+
+        public Task<AgentTurnResult> RespondAsync(string userInput, CancellationToken ct = default)
+            => Task.FromResult(new AgentTurnResult("", "", "", null, ""));
+
+        public Task<AgentTurnResult> ProactiveAsync(CancellationToken ct = default)
+            => Task.FromResult(new AgentTurnResult("", "", "", null, ""));
+
+        public Task<IReadOnlyList<SpeechSegment>> GenerateSpeechSegmentsAsync(string? userInput, bool isProactive, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SpeechSegment>>([]);
+
+        public Task<TtsResult?> SynthesizeAsync(string text, string emotion = "neutral", double intensity = 0.5, CancellationToken ct = default)
+            => Task.FromResult<TtsResult?>(null);
+    }
 
     /// <summary>
     /// 记录最后一次收到的输入，并回固定台词。

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,8 +13,15 @@ namespace HuTao.Pet;
 public partial class MainWindow
 {
     private async void ReadDocument_Click(object sender, RoutedEventArgs e)
+        => await PickAndReadDocumentAsync();
+
+    /// <summary>
+    /// 弹文件框并朗读。抽成无参方法供聊天窗侧边栏复用
+    /// （见 <see cref="RailReadDocumentAsync"/>）——两边各写一份迟早会不一致。
+    /// </summary>
+    private async Task PickAndReadDocumentAsync()
     {
-        if (_talking || _documentReader is null)
+        if (_talking || _documentReader is null || _cts.IsCancellationRequested)
             return;
 
         var dialog = new OpenFileDialog
@@ -30,7 +37,14 @@ public partial class MainWindow
         await StartDocumentReadingAsync(dialog.FileName);
     }
 
-    private async Task StartDocumentReadingAsync(string path)
+    private Task StartDocumentReadingAsync(string path)
+    {
+        if(_cts.IsCancellationRequested || _talking || _documentReader is null)return Task.CompletedTask;
+        _documentTask=ReadDocumentCoreAsync(path);
+        return _documentTask;
+    }
+
+    private async Task ReadDocumentCoreAsync(string path)
     {
         if (_documentReader is null || _talking)
             return;
@@ -41,6 +55,7 @@ public partial class MainWindow
             AddBubble("好哦，我来帮你念这份稿子啦~", isUser: false, audio: null, record: false);
             AddNarrationBubble($"（旁白：{CurrentCharacter.Name}正在整理稿件，马上开始有感情地念稿子~）");
             var result = await _documentReader.ReadAsync(path, _cts.Token);
+            _cts.Token.ThrowIfCancellationRequested();
             if (result.Success)
             {
                 AddBubble("我完成啦，MP3 已经做好，快去听听~", isUser: false, audio: null, record: false);
@@ -67,9 +82,9 @@ public partial class MainWindow
 
     private void ReportDocumentProgress(string message)
     {
-        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        if (_cts.IsCancellationRequested || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
             return;
-        _ = Dispatcher.InvokeAsync(() => AddNarrationBubble(message));
+        _ = Dispatcher.InvokeAsync(() => {if(!_cts.IsCancellationRequested)AddNarrationBubble(message);});
     }
 
     private void AddNarrationBubble(string text)

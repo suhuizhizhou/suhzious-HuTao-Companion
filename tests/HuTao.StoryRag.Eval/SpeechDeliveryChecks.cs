@@ -49,6 +49,14 @@ internal static class SpeechDeliveryChecks
             calls = 0;
             var original = await next.PrepareAudioAsync(spoken with { OriginalAudioPath = file }, Fail);
             Check("speech_original_audio_no_synthesis", original == file && calls == 0);
+            var allowed=true;var guarded=spoken with {DeliveryAllowed=()=>allowed};var suppressed=false;
+            try {await new SpeechDeliverySession().PrepareAudioAsync(guarded,_=>{allowed=false;return Task.FromResult<TtsResult?>(new(file,24000,0));});}
+            catch(OperationCanceledException){suppressed=true;}
+            Check("speech_forget_during_synthesis_discards_delivery",suppressed);
+            suppressed=false;
+            try {await new SpeechDeliverySession().PrepareAudioAsync(guarded with {OriginalAudioPath=file},Fail);}
+            catch(OperationCanceledException){suppressed=true;}
+            Check("speech_forget_blocks_original_audio",suppressed && calls==0);
             var action = await next.PrepareAudioAsync(spoken with { Text = "（翻开档案）", OriginalAudioPath = file }, Fail);
             Check("speech_action_always_silent", action is null && calls == 0);
 

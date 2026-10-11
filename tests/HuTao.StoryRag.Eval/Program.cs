@@ -10,6 +10,10 @@ using HuTao.Dialogue.Tools;
 using HuTao.Dialogue.Llm;
 using HuTao.Persona;
 
+if(args.Length>0 && args[0]=="--knowledge-lock-process-probe")
+    return await KnowledgeLockProcessProbe.RunAsync(args[1..]);
+if(args.Length>0 && args[0]=="--knowledge-rollback-stage-probe")
+    return KnowledgeRollbackStageProbe.Run(args[1..]);
 if (args.Length >= 3 && args[0] == "--tool-process-fixture")
 {
     if (args[1] == "flood")
@@ -21,6 +25,9 @@ if (args.Length >= 3 && args[0] == "--tool-process-fixture")
     return 0;
 }
 var root = FindRoot(Environment.CurrentDirectory);
+if (OfflineCheckRunner.Supports(args))
+    return await OfflineCheckRunner.RunAsync(args, root);
+
 var json = new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -30,41 +37,102 @@ var json = new JsonSerializerOptions
     Converters = { new JsonStringEnumConverter() }
 };
 string? Option(string name) => Array.IndexOf(args, name) is var i && i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
-if (args.Contains("--tool-checks"))
+if(args.Contains("--knowledge-migration-prepare"))
+    return await KnowledgeMigrationPreparation.RunAsync(root,Option("--package")??throw new ArgumentException("--package required"),Option("--out")??throw new ArgumentException("--out required"),json);
+if(args.Contains("--knowledge-campaign"))
+    return await KnowledgeCampaign.RunAsync(root,Option("--action")??"audit",Option("--out")??throw new ArgumentException("--out required"),Option("--fixtures"),Option("--batch"),Option("--graph-uri"),json);
+if(args.Contains("--knowledge-review-export"))
 {
-    var toolChecks = await ToolChecks.RunAsync();
-    foreach (var check in toolChecks) Console.WriteLine($"{(check.Passed ? "PASS" : "FAIL")} {check.Name} {check.Detail}");
-    Console.WriteLine($"Tools: {toolChecks.Count(c => c.Passed)}/{toolChecks.Count}");
-    return toolChecks.All(c => c.Passed) ? 0 : 1;
+    var campaign=Path.GetFullPath(Option("--campaign")??throw new ArgumentException("--campaign required"));
+    using var manifest=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(campaign,"manifest.json")));
+    var completed=manifest.RootElement.GetProperty("batches").EnumerateArray()
+        .Select(b=>b.GetProperty("id").GetString()!)
+        .Where(id=>File.Exists(Path.Combine(campaign,id+".receipt.json"))).ToHashSet(StringComparer.Ordinal);
+    var review=await KnowledgeReviewExport.RunAsync(campaign,completed,json);
+    Console.WriteLine(JsonSerializer.Serialize(new {review,completed_batches=completed.Count,human_scores="pending",quality_passed=false},json));
+    return 0;
 }
+if(args.Contains("--knowledge-review-score"))
+    return await KnowledgeHumanReview.RunAsync(Path.GetFullPath(Option("--campaign")??throw new ArgumentException("--campaign required")),
+        Path.GetFullPath(Option("--review")??throw new ArgumentException("--review required")),json);
+if(args.Contains("--knowledge-ablation-summary"))
+    return await KnowledgeAblationSummary.RunAsync(Option("--report")??throw new ArgumentException("--report required"),Option("--out")??throw new ArgumentException("--out required"),json);
+if(args.Contains("--knowledge-fixtures-validate"))
+{
+    var fixtures=KnowledgeAblationSmoke.LoadFixtures(Option("--fixtures")??throw new ArgumentException("--fixtures required"),json);
+    Console.WriteLine($"PASS fixture schema: {fixtures.Length} scenarios; semantic labels require independent review");return 0;
+}
+if(args.Contains("--knowledge-fixtures-preflight"))
+    return await KnowledgeFixturePreflight.RunAsync(Option("--fixtures")??throw new ArgumentException("--fixtures required"),Option("--out")??throw new ArgumentException("--out required"),json);
+if(args.Contains("--knowledge-candidates-live"))
+    return await KnowledgeCandidatesLive.RunAsync(root,Path.GetFullPath(Option("--out")??"evaluation/knowledge-rag/results/candidates-live"),json);
+if(args.Contains("--knowledge-runtime-live"))
+    return await KnowledgeRuntimeLive.RunAsync(root,Path.GetFullPath(Option("--out")??"evaluation/knowledge-rag/results/runtime-live"),json);
+if(args.Contains("--knowledge-ablation-smoke"))
+    return await KnowledgeAblationSmoke.RunAsync(root,Path.GetFullPath(Option("--out")??"evaluation/knowledge-rag/results/ablation-smoke"),Option("--group")??"C",int.Parse(Option("--live-limit")??"5"),json,Option("--graph-uri"),int.Parse(Option("--live-start")??"0"),Option("--fixtures"));
+if(args.Contains("--knowledge-support-eval"))
+    return await KnowledgeSupportEvaluation.RunAsync(root,Path.GetFullPath(Option("--out")??"evaluation/knowledge-rag/results/support-review"),int.Parse(Option("--repeats")??"2"),json,Option("--suite")??"contrast",Option("--review-mode")??"batch",Option("--review-model")??"deepseek-chat",int.Parse(Option("--review-max-tokens")??"1000"));
+if(args.Contains("--knowledge-extraction-live"))
+    return await KnowledgeExtractionLive.RunAsync(root,Path.GetFullPath(Option("--out")??"evaluation/knowledge-rag/results/extraction-live"),int.Parse(Option("--live-limit")??"20"),json,int.Parse(Option("--live-start")??"0"));
+if(args.Contains("--knowledge-corpus-verify-existing"))
+{
+    var databasePath=Path.GetFullPath(Option("--db")??throw new ArgumentException("--db required"));
+    var lexicon=StoryLexicon.Merge(StoryLexicon.Load(Path.Combine(root,"data/persona/hutao/lexicon.json")),
+        StoryLexicon.Load(StoryLexicon.CorpusLexiconPath(Path.Combine(root,"data/story"))));
+    var elapsed=Stopwatch.StartNew();
+    var verification=HuTao.Knowledge.Import.StorySqlImporter.VerifyExistingCorpus(databasePath,"corpus:genshin:canonical",Path.Combine(root,"data/story/dialogue"),lexicon??StoryLexicon.Empty);
+    Console.WriteLine(JsonSerializer.Serialize(new {report=verification,elapsed_ms=elapsed.ElapsedMilliseconds,exact_metadata_and_order=true,read_only=true},json));
+    return 0;
+}
+if (args.Contains("--knowledge-corpus-checks"))
+{
+    var output=Path.GetFullPath(Option("--out") ?? "evaluation/knowledge-rag/results/corpus");
+    Directory.CreateDirectory(output);
+    var db=new HuTao.Knowledge.Storage.SqliteKnowledgeDatabase(Path.Combine(output,"corpus.db"));
+    var importer=new HuTao.Knowledge.Import.StorySqlImporter(db);
+    var lexicon=StoryLexicon.Merge(StoryLexicon.Load(Path.Combine(root,"data/persona/hutao/lexicon.json")),
+        StoryLexicon.Load(StoryLexicon.CorpusLexiconPath(Path.Combine(root,"data/story"))));
+    var elapsed=Stopwatch.StartNew();
+    var corpusReport=importer.VerifyRoundTrip("corpus:genshin:canonical",Path.Combine(root,"data/story/dialogue"),lexicon ?? StoryLexicon.Empty);
+    await File.WriteAllTextAsync(Path.Combine(output,"manifest.json"),JsonSerializer.Serialize(new {report=corpusReport, elapsed_ms=elapsed.ElapsedMilliseconds, database_bytes=new FileInfo(db.FilePath).Length, exact_metadata_and_order=true},json));
+    Console.WriteLine($"PASS corpus_roundtrip count={corpusReport.Count} manifest={corpusReport.Version} elapsed_ms={elapsed.ElapsedMilliseconds}");
+    return 0;
+}
+if (args.Contains("--knowledge-graph-smoke"))
+{
+    var uri = Option("--graph-uri");
+    if (uri is null) { Console.WriteLine("SKIP Neo4j: --graph-uri required"); return 2; }
+    await using var driver = Neo4j.Driver.GraphDatabase.Driver(uri, Neo4j.Driver.AuthTokens.None);
+    await driver.VerifyConnectivityAsync();
+    await using var session = driver.AsyncSession();
+    var cursor = await session.RunAsync("CALL dbms.components() YIELD name, versions, edition RETURN name, versions[0] AS version, edition");
+    while(await cursor.FetchAsync())
+        Console.WriteLine($"PASS real_neo4j_driver {cursor.Current["name"]} {cursor.Current["version"]} {cursor.Current["edition"]}");
+    return 0;
+}
+if(args.Contains("--knowledge-graph-checks"))
+{
+    if(Option("--graph-uri") is not {} uri){Console.WriteLine("SKIP Neo4j: --graph-uri required");return 2;}
+    var graphChecks=await KnowledgeGraphChecks.RunAsync(uri);
+    foreach(var check in graphChecks)Console.WriteLine($"{(check.Passed?"PASS":"FAIL")} {check.Name} {check.Detail}");
+    Console.WriteLine($"Knowledge graph: {graphChecks.Count(c=>c.Passed)}/{graphChecks.Count}");
+    return graphChecks.All(c=>c.Passed)?0:1;
+}
+
+if(args.Contains("--knowledge-live"))
+    return await KnowledgeLiveEvaluation.RunAsync(root,Path.GetFullPath(Option("--out")??"evaluation/knowledge-rag/results/dialogue-smoke"),
+        int.TryParse(Option("--live-limit"),out var knowledgeLimit)?knowledgeLimit:1,json);
+
 if (args.Contains("--companion-live"))
     return await CompanionLiveEvaluation.RunAsync(root,
         Path.GetFullPath(Option("--out") ?? "evaluation/story-rag/results/companion-live"), json);
 if (args.Contains("--tool-live"))
     return await ToolLiveEvaluation.RunAsync(root,
         Path.GetFullPath(Option("--out") ?? "evaluation/story-rag/results/tool-live"), json);
-if (args.Contains("--recall-checks"))
-{
-    var recallChecks = await RecallChecks.RunAsync();
-    recallChecks.AddRange(await MemoryChecks.RunAsync());
-    foreach (var check in recallChecks) Console.WriteLine($"{(check.Passed ? "PASS" : "FAIL")} {check.Name} {check.Detail}");
-    Console.WriteLine($"Recall + memory: {recallChecks.Count(c => c.Passed)}/{recallChecks.Count}");
-    return recallChecks.All(c => c.Passed) ? 0 : 1;
-}
-if (args.Contains("--conversation-checks"))
-{
-    var conversationChecks = await ConversationChecks.RunAsync();
-    foreach (var check in conversationChecks) Console.WriteLine($"{(check.Passed ? "PASS" : "FAIL")} {check.Name} {check.Detail}");
-    Console.WriteLine($"Conversation: {conversationChecks.Count(c => c.Passed)}/{conversationChecks.Count}; offline, no GPU.");
-    return conversationChecks.All(c => c.Passed) ? 0 : 1;
-}
-if (args.Contains("--speech-checks"))
-{
-    var speechChecks = await SpeechDeliveryChecks.RunAsync();
-    foreach (var check in speechChecks) Console.WriteLine($"{(check.Passed ? "PASS" : "FAIL")} {check.Name} {check.Detail}");
-    Console.WriteLine($"Speech delivery: {speechChecks.Count(c => c.Passed)}/{speechChecks.Count}; offline, no GPU.");
-    return speechChecks.All(c => c.Passed) ? 0 : 1;
-}
+
+
+
+
 if (args.Contains("--live") && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY")))
     throw new InvalidOperationException("--live requires DEEPSEEK_API_KEY. Set it before evaluation; no offline cases were executed.");
 var summaries = StoryVectorStore.Load(Path.Combine(root, "data/story/index.json"));
@@ -81,9 +149,11 @@ var strategy = Enum.TryParse<RetrievalStrategy>(Option("--strategy") ?? "Baselin
 // ⚠️ 这里不传词表的话，100 场景回归会失去「本堂主 / 桃桃 / 胡堂主 / 大咪」这些自称，
 // 路由准确率会掉——而且看起来像检索退化，其实是评测自己没装词表。
 var hutaoLexicon = StoryLexicon.Load(Path.Combine(root, "data/persona/hutao/lexicon.json"));
+var evaluationSql = Option("--knowledge-sql-db") is { } sqlPath
+    ? new HuTao.Knowledge.Storage.SqliteKnowledgeDatabase(sqlPath) : null;
 var service = new StoryRagService(Path.Combine(root, "data/story/dialogue"), summaries,
     new StoryRagOptions { EnablePersonalMemory = ablation != "no-memory", EnableQueryExpansion = ablation != "no-expansion", Strategy = strategy },
-    semantic, hutaoLexicon);
+    semantic, hutaoLexicon, evaluationSql, evaluationSql is null ? null : "corpus:genshin:canonical");
 if (Option("--export") is { } export) { await service.ExportAsync(Path.GetFullPath(export)); Console.WriteLine("Exported " + export); return 0; }
 // 面向人阅读的后端追踪日志（报告之外单独一份可读叙事）。
 // 评测里默认写进本次输出目录（`.cache` / `results` 都是 gitignored），**不写用户本机的日志**。
@@ -588,6 +658,7 @@ static async Task<object> RunAgentEvaluationAsync(BenchmarkCase[] cases, StoryRa
             GateCoherence = turn.Immersion?.Coherence, GateSource = turn.Immersion?.Source ?? "",
             GatePath = turn.ImmersionPath ?? "",
             AnswerPath = turn.StoryAnswer?.Path ?? "", AnswerValidated = turn.StoryAnswer?.Validated,
+            AnswerValidationLevel=turn.AnswerValidationLevel.ToString(),
             AnswerIssues = turn.StoryAnswer?.Issues.ToArray() ?? [],
             JudgeScore = judged.Score, JudgeVerdict = judged.Verdict, JudgeReason = judged.Reason,
             ElapsedMs = started.Elapsed.TotalMilliseconds,
@@ -835,6 +906,7 @@ internal sealed record AgentRow
     public string GatePath { get; init; } = "";
     public string AnswerPath { get; init; } = "";
     public bool? AnswerValidated { get; init; }
+    public string AnswerValidationLevel {get;init;}="Unchecked";
     public string[] AnswerIssues { get; init; } = [];
     public double JudgeScore { get; init; }
     public string JudgeVerdict { get; init; } = "";

@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using HuTao.Foundation.Diagnostics;
@@ -42,36 +42,71 @@ public sealed class ConversationMemoryStore
     private DateTimeOffset? _lastConsolidatedAt;
     private DateTimeOffset _lastSave = DateTimeOffset.MinValue;
     private bool _dirty;
+    private readonly IConversationMemoryRepository? _repository;
+    private readonly Func<IDisposable>? _accessLease;
+    private long _repositoryRevision;
+    private bool _batch;
+    private MemoryConsolidationRun? _pendingRun;
 
     public ConversationMemoryStore(
         string path,
         MemoryOptions? options = null,
-        LocalDiagnosticLog? diagnostics = null)
+        LocalDiagnosticLog? diagnostics = null,
+        IConversationMemoryRepository? repository = null, Func<IDisposable>? accessLease = null)
     {
         _path = Path.GetFullPath(path);
         _archivePath = Path.ChangeExtension(_path, null) + ".archive.jsonl";
         _options = options ?? MemoryOptions.FromEnvironment();
         _options.Validate();
         _diagnostics = diagnostics ?? LocalDiagnosticLog.Default;
+        _repository = repository;
+        _accessLease = accessLease;
         Load();
     }
 
     public MemoryOptions Options => _options;
     public string FilePath => _path;
-    public DateTimeOffset? LastConsolidatedAt { get { lock (_gate) return _lastConsolidatedAt; } }
+    public DateTimeOffset? LastConsolidatedAt { get { lock (_gate) {RefreshRepository();return _lastConsolidatedAt;} } }
 
     /// <summary>直接回答「她知道什么」。调用方不应修改返回的集合。</summary>
     public IReadOnlyList<MemoryRecord> Snapshot()
     {
-        lock (_gate) return _records.ToArray();
+        lock (_gate) {RefreshRepository();return _records.ToArray();}
     }
 
-    public int Count { get { lock (_gate) return _records.Count; } }
+    public int Count { get { lock (_gate) {RefreshRepository();return _records.Count;} } }
 
     // ── 写入 ──────────────────────────────────────────────────────────────
 
     /// <summary>记录一轮真实对话。零 LLM 成本，是阶段 1 的检索主力。</summary>
-    public MemoryRecord? ObserveTurn(string speaker, string text, DateTimeOffset at)
+    /// <summary>
+    /// 提炼产物继承哪种归属：取来源记录里出现最多的那个非空归属；
+    /// 都没有（全是旧数据）就退回当前角色的归属。
+    ///
+    /// 为什么取"多数派"而不是"第一条"：一次提炼的来源理论上可能跨归属
+    /// （文件被手工合并过）。真正的跨角色污染由写入端挡住——每个角色一份文件。
+    /// </summary>
+    private string DominantPersona(IReadOnlyList<string> sourceIds)
+    {
+        if (sourceIds.Count == 0)
+            return _options.Persona;
+        // 来源都在这份文件的 _records 里。用一次性扫描（而不是每条来源一次
+        // FirstOrDefault）——提炼会反复调用它，线性扫描会把开销叠成 O(n*m)。
+        var wantedSources = sourceIds.ToHashSet(StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var record in _records)
+        {
+            if (string.IsNullOrEmpty(record.Persona) || !wantedSources.Contains(record.Id))
+                continue;
+            counts[record.Persona] = counts.GetValueOrDefault(record.Persona) + 1;
+        }
+        if (counts.Count == 0)
+            return _options.Persona;
+        return counts.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal)
+            .First().Key;
+    }
+
+    public MemoryRecord? ObserveTurn(string speaker, string text, DateTimeOffset at,bool deduplicate=true)
     {
         var trimmed = (text ?? "").Trim();
         if (trimmed.Length < 2 || Noise.IsMatch(trimmed))
@@ -79,9 +114,15 @@ public sealed class ConversationMemoryStore
 
         lock (_gate)
         {
+            if (_repository is not null && !_batch)
+            {
+                MemoryRecord? result = null;
+                CommitBatch(() => result = ObserveTurn(speaker, trimmed, at,deduplicate));
+                return result;
+            }
             var fingerprint = Fingerprint(speaker, trimmed);
             // 同一句话在极短时间内重复（重复投递、导入与实时写入重叠）只留一条。
-            if (_byFingerprint.TryGetValue(fingerprint, out var existing) &&
+            if (deduplicate && _byFingerprint.TryGetValue(fingerprint, out var existing) &&
                 Math.Abs((existing.ObservedAt - at).TotalSeconds) < 120)
             {
                 if (existing.Kind != MemoryKind.Turn)
@@ -96,6 +137,9 @@ public sealed class ConversationMemoryStore
                 Kind = MemoryKind.Turn,
                 Text = trimmed,
                 Speaker = speaker,
+                // 归属：这条是谁说的。缺了它，别的角色会把自己的记忆文件里
+                // 装着的"上一个角色说过的话"当成自己说过的，并模仿那个自称。
+                Persona = _options.Persona,
                 ObservedAt = at,
                 RecordedAt = at,
                 ValidUntil = scope.ValidUntil,
@@ -104,6 +148,7 @@ public sealed class ConversationMemoryStore
             };
             _records.Add(record);
             _byFingerprint[fingerprint] = record;
+            _dirty = true;
             TouchSave(at);
             return record;
         }
@@ -118,6 +163,12 @@ public sealed class ConversationMemoryStore
         var list = entries.ToList();
         lock (_gate)
         {
+            if (_repository is not null && !_batch)
+            {
+                var result = 0;
+                CommitBatch(() => result = ImportChatLog(list, now));
+                return result;
+            }
             if (list.Count <= _importedChatEntries)
                 return 0;
 
@@ -141,6 +192,9 @@ public sealed class ConversationMemoryStore
                     Kind = MemoryKind.Turn,
                     Text = trimmed,
                     Speaker = role,
+                    // 导入来源是 chat_log_{角色}.json，**角色是已知的**，必须盖章——
+                    // 漏了它，本角色的历史会被检索端当成"来源不明的旧记录"。
+                    Persona = _options.Persona,
                     ObservedAt = observedAt,
                     RecordedAt = now,
                     ValidUntil = scope.ValidUntil,
@@ -172,6 +226,12 @@ public sealed class ConversationMemoryStore
     {
         lock (_gate)
         {
+            if (_repository is not null && !_batch)
+            {
+                MemoryRecord? result = null;
+                CommitBatch(() => result = AddConsolidated(text, kind, importance, sources, observedAt, now, validUntil, supersedesId));
+                return result!;
+            }
             var trimmed = (text ?? "").Trim();
             var fingerprint = Fingerprint(kind.ToString(), trimmed);
             MemoryRecord record;
@@ -194,6 +254,10 @@ public sealed class ConversationMemoryStore
                     Kind = kind,
                     Text = trimmed,
                     Speaker = "consolidation",
+                    // 提炼产物必须**继承来源的归属**：来源都是同一个角色说过的
+                    // （记忆文件本就按角色分）。漏了它，提炼出来的记忆会变成
+                    // "来源不明"，于是"你曾说"对提炼记忆全部失效。
+                    Persona = DominantPersona(sources),
                     ObservedAt = observedAt,
                     RecordedAt = now,
                     ValidUntil = validUntil,
@@ -298,30 +362,55 @@ public sealed class ConversationMemoryStore
 
     // ── 持久化与归档 ──────────────────────────────────────────────────────
 
-    /// <summary>把内存状态写盘。维护循环与退出路径应显式调用，避免丢最近几秒。</summary>
-    public void Flush()
+    /// <summary>把内存状态写盘。迁移前使用 throwOnError=true 确认失败；调用方仍须先停止写入。</summary>
+    public void Flush(bool throwOnError = false)
     {
         lock (_gate)
         {
             if (!_dirty)
                 return;
-            Save();
+            Save(throwOnError);
+        }
+    }
+
+    /// <summary>Keep the store lock until the caller revokes its legacy access lease.</summary>
+    public void FlushAndRetire(Action retire)
+    {
+        ArgumentNullException.ThrowIfNull(retire);
+        lock(_gate)
+        {
+            if(_batch)throw new InvalidOperationException("Cannot retire during a memory transaction.");
+            if(_dirty)Save(throwOnError:true);
+            retire();
         }
     }
 
     /// <summary>写盘节流：一轮对话一次全量重写代价过高，改动先留在内存。</summary>
     private void TouchSave(DateTimeOffset now)
     {
+        if (_batch) return;
+        if (_repository is not null) { Save(); return; }
         if (now - _lastSave < TimeSpan.FromSeconds(3))
             return;
         Save();
     }
 
-    private void Save()
+    private void Save(bool throwOnError = false)
     {
+        using var lease=_accessLease?.Invoke();
+        if (_batch) return;
+        if (_repository is not null)
+        {
+            _repositoryRevision = _repository.Save(Capture(), _repositoryRevision, _pendingRun);
+            var persisted=_repository.Load();
+            _repositoryRevision=persisted.Revision;Restore(persisted.State);
+            _dirty = false;
+            _lastSave = DateTimeOffset.Now;
+            return;
+        }
         try
         {
-            ArchiveOverflow();
+            if (!throwOnError) ArchiveOverflow();
             var directory = Path.GetDirectoryName(_path);
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
@@ -333,7 +422,14 @@ public sealed class ConversationMemoryStore
             };
             // 先写临时文件再替换，避免进程中断留下半个 JSON。
             var temp = _path + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(state, MemoryFileState.Json), Encoding.UTF8);
+            if(throwOnError)
+            {
+                using var stream=new FileStream(temp,FileMode.Create,FileAccess.Write,FileShare.None);
+                using(var writer=new StreamWriter(stream,Encoding.UTF8,leaveOpen:true))
+                    writer.Write(JsonSerializer.Serialize(state,MemoryFileState.Json));
+                stream.Flush(flushToDisk:true);
+            }
+            else File.WriteAllText(temp, JsonSerializer.Serialize(state, MemoryFileState.Json), Encoding.UTF8);
             File.Move(temp, _path, overwrite: true);
             _dirty = false;
             _lastSave = DateTimeOffset.Now;
@@ -342,6 +438,7 @@ public sealed class ConversationMemoryStore
         {
             // 记忆写盘失败不能影响对话。
             _diagnostics.Write("memory.save", ex);
+            if (throwOnError) throw;
         }
     }
 
@@ -388,6 +485,13 @@ public sealed class ConversationMemoryStore
 
     private void Load()
     {
+        if (_repository is not null)
+        {
+            var snapshot = _repository.Load();
+            _repositoryRevision = snapshot.Revision;
+            Restore(snapshot.State);
+            return;
+        }
         if (!File.Exists(_path))
             return;
         try
@@ -411,7 +515,62 @@ public sealed class ConversationMemoryStore
         }
     }
 
+    private void RefreshRepository()
+    {
+        using var lease=_accessLease?.Invoke();
+        if(_repository is null || _batch)return;
+        var snapshot=_repository.Load();
+        if(snapshot.Revision==_repositoryRevision)return;
+        Restore(snapshot.State);_repositoryRevision=snapshot.Revision;_dirty=false;
+    }
+
     // ── 辅助 ──────────────────────────────────────────────────────────────
+
+    private MemoryFileState Capture() => new()
+    { ImportedChatEntries = _importedChatEntries, LastConsolidatedAt = _lastConsolidatedAt, Records = _records };
+
+    private void Restore(MemoryFileState state)
+    {
+        _importedChatEntries = state.ImportedChatEntries;
+        _lastConsolidatedAt = state.LastConsolidatedAt;
+        _records.Clear();
+        _records.AddRange(state.Records);
+        _byFingerprint.Clear();
+        foreach (var record in _records) _byFingerprint[record.Fingerprint] = record;
+    }
+
+    /// <summary>Extraction happens before this call. Commit all mutations once; restore memory on failure.</summary>
+    public bool HasCommitted(MemoryConsolidationRun run) => _repository?.HasCommitted(run) == true;
+
+    public void CommitBatch(Action mutation, CancellationToken ct = default, MemoryConsolidationRun? run = null)
+    {
+        lock (_gate)
+        {
+            if (_batch) throw new InvalidOperationException("Nested memory batch.");
+            RefreshRepository();
+            if (run is not null && HasCommitted(run)) return;
+            var before = JsonSerializer.Deserialize<MemoryFileState>(JsonSerializer.Serialize(Capture(), MemoryFileState.Json), MemoryFileState.Json)!;
+            foreach(var record in before.Records)record.SourceRevisions=new(_records.Single(r=>r.Id==record.Id).SourceRevisions,StringComparer.Ordinal);
+            var wasDirty = _dirty;
+            _batch = true;
+            _pendingRun = run;
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                mutation();
+                ct.ThrowIfCancellationRequested();
+                _batch = false;
+                Save(throwOnError: true);
+            }
+            catch
+            {
+                Restore(before);
+                _dirty = wasDirty;
+                throw;
+            }
+            finally { _batch = false; _pendingRun = null; }
+        }
+    }
 
     /// <summary>与剧情索引共用同一套分词，保证两种检索的「词」是同一个概念。</summary>
     public static string Fingerprint(string speaker, string text)

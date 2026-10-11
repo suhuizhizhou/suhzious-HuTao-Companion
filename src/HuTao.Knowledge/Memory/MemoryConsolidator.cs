@@ -78,6 +78,10 @@ public sealed class MemoryConsolidator
 
         try
         {
+            var input=JsonSerializer.Serialize(turns.Select(t=>new { t.Id,t.Text,t.Speaker,t.ObservedAt }));
+            var run=new MemoryConsolidationRun(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input))),
+                LlmAvailable?_llm!.Name:"heuristic","memory-consolidation-v1");
+            if(_store.HasCommitted(run))return new ConsolidationResult(0,0,0,0,"already-committed");
             var facts = LlmAvailable
                 ? await ExtractWithLlmAsync(turns, now, ct).ConfigureAwait(false)
                 : ExtractHeuristically(turns);
@@ -86,6 +90,7 @@ public sealed class MemoryConsolidator
             var added = 0;
             var updated = 0;
             var superseded = 0;
+            _store.CommitBatch(() => {
             foreach (var fact in facts.Take(MaxFactsPerRound))
             {
                 ct.ThrowIfCancellationRequested();
@@ -110,7 +115,7 @@ public sealed class MemoryConsolidator
 
             // 只有成功走完才推进游标，否则下一轮会重复提炼。
             _store.MarkConsolidated(turns.Select(t => t.Id), now);
-            _store.Flush();
+            }, ct, run);
             return new ConsolidationResult(turns.Count, added, updated, superseded, path);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

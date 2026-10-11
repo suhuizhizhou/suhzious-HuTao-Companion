@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -34,7 +34,9 @@ public partial class MainWindow
         "HuTaoCompanion",
         "ui-settings.json");
     private WindowDisplayMode _displayMode = WindowDisplayMode.Full;
-    private bool _topmostEnabled = true;
+    // 默认**不置顶**：以前是 true，桌宠会压在一切窗口之上。改用 QQNT 聊天窗口之后
+    // 那套"永远盖着别人"的行为很碍事（切浏览器、看文档都会被挡）。托盘菜单里仍可手动开。
+    private bool _topmostEnabled;
     private bool _isExiting;
 
     private void InitializeWindowPresentation()
@@ -185,8 +187,10 @@ public partial class MainWindow
 
             if (Enum.TryParse<WindowDisplayMode>(settings.DisplayMode, true, out var mode))
                 _displayMode = mode;
-            _topmostEnabled = settings.Topmost;
-            Topmost = _topmostEnabled;
+            // 旧版本把"置顶"默认存成 true，直接读回来会把上面刚改的默认值又盖掉。
+            // 所以存量设置一律按"不置顶"处理；想置顶的用托盘菜单显式打开（会重新存 true）。
+            _topmostEnabled = false;
+            Topmost = false;
 
             if (double.IsFinite(settings.Left) && double.IsFinite(settings.Top))
             {

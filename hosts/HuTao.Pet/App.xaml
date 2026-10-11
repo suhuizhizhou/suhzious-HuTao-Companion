@@ -1,9 +1,17 @@
-﻿<Application x:Class="HuTao.Pet.App"
+<Application x:Class="HuTao.Pet.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:HuTao.Pet"
-             StartupUri="MainWindow.xaml">
+             xmlns:local="clr-namespace:HuTao.Pet">
+    <!--
+      没有 StartupUri：窗口由 App.OnStartup 按命令行选择。
+      默认开桌宠；`chat shell` 开关只开 QQNT 聊天客户端。
+    -->
     <Application.Resources>
-         
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- QQNT 聊天客户端的主题令牌与控件样式。UI 代码不许硬编码颜色。 -->
+                <ResourceDictionary Source="ChatShellStyle.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>
