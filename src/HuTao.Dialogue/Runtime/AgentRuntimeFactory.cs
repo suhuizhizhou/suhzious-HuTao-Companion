@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using HuTao.Foundation.Abstractions;
 using HuTao.Persona;
 using HuTao.Dialogue.Core;
@@ -25,17 +25,22 @@ public sealed class AgentRuntimeFactory
     /// <summary>按语料目录缓存检索服务：胡桃一份、异环一份，互不干扰也互不重复构建。</summary>
     private readonly Dictionary<string, StoryRagService> _storyRags = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _storyGate = new();
+    private readonly KnowledgeRuntimeOptions _knowledgeOptions;
+    private readonly Func<PersonaProfile,ILLMProvider>? _llmFactory;
 
     public AgentRuntimeFactory(
         string repoRoot,
         Func<CharacterDefinition, ITtsEngine?>? ttsFactory = null,
         Action<string>? log = null,
-        Func<ToolApproval, CancellationToken, Task<bool>>? approveTool = null)
+        Func<ToolApproval, CancellationToken, Task<bool>>? approveTool = null,
+        KnowledgeRuntimeOptions? knowledgeOptions=null,Func<PersonaProfile,ILLMProvider>? llmFactory=null)
     {
         _repoRoot = Path.GetFullPath(repoRoot);
         _ttsFactory = ttsFactory;
         _log = log;
         _approveTool = approveTool;
+        _knowledgeOptions=knowledgeOptions??KnowledgeRuntimeOptions.FromEnvironment(_repoRoot);_llmFactory=llmFactory;
+        if(!Enum.IsDefined(_knowledgeOptions.Mode))throw new ArgumentException("Unknown knowledge runtime mode.");
     }
 
     /// <summary>
@@ -88,6 +93,36 @@ public sealed class AgentRuntimeFactory
         IAgentEventSink? eventSink = null,
         string? memoryScope = null)
     {
+        var scope=string.IsNullOrWhiteSpace(memoryScope)?"desktop":memoryScope;
+        _=HuTao.Knowledge.Retrieval.KnowledgeAccessContext.ForSession(_knowledgeOptions.UserId,character.Id,scope,[]);
+        var sqlWrites=_knowledgeOptions.Mode is KnowledgeRuntimeMode.Sql or KnowledgeRuntimeMode.SqlGraph;
+        var hostPaths=KnowledgeHostPaths.Resolve(_repoRoot,character,_knowledgeOptions.UserId,scope);
+        var authorityPath=hostPaths.Authority;
+        var fence=new KnowledgeAuthorityFence(authorityPath);
+        using var activationLease=fence.Acquire(legacy:!sqlWrites);
+        if(File.Exists(authorityPath+".rollback-pending.json"))
+            throw new InvalidOperationException("Rollback installation is pending; recover or complete it before starting a runtime.");
+        if(File.Exists(authorityPath+".legacy-authority.json"))
+        {
+            var legacyAuthority=JsonSerializer.Deserialize<KnowledgeRollbackInstallation.LegacyAuthority>(File.ReadAllBytes(authorityPath+".legacy-authority.json"));
+            if(legacyAuthority?.Namespace!=HuTao.Knowledge.Retrieval.KnowledgeAccessContext.ForSession(_knowledgeOptions.UserId,character.Id,scope,[]).MemoryNamespace)
+                throw new InvalidDataException("Legacy authority belongs to a different conversation.");
+            if(sqlWrites || _knowledgeOptions.Mode==KnowledgeRuntimeMode.Shadow)
+                throw new InvalidOperationException("Legacy owns this conversation after rollback; explicitly migrate its latest state before selecting SQL or shadow.");
+        }
+        using var stoppedLegacy=sqlWrites?fence.RequireNoLegacyRuntime():null;
+        string? expectedLineageId=null;
+        if(!sqlWrites && File.Exists(authorityPath))throw new InvalidOperationException("SQL owns this conversation. Export and explicitly roll back before selecting legacy/shadow.");
+        if(sqlWrites && File.Exists(authorityPath))
+        {
+            using var authority=JsonDocument.Parse(File.ReadAllText(authorityPath));
+            if(authority.RootElement.GetProperty("space").GetString()!=HuTao.Knowledge.Retrieval.KnowledgeAccessContext.ForSession(_knowledgeOptions.UserId,character.Id,scope,[]).MemoryNamespace)
+                throw new InvalidOperationException("SQL authority belongs to another conversation identity.");
+            if(authority.RootElement.TryGetProperty("lineageId",out var lineage))
+                expectedLineageId=lineage.GetString()??throw new InvalidDataException("SQL authority lineage is null.");
+            if(!string.Equals(authority.RootElement.GetProperty("database").GetString(),Path.GetFullPath(_knowledgeOptions.DatabasePath),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Configured database differs from this conversation's SQL authority.");
+        }
         var persona = PersonaLoader.Load(Path.Combine(_repoRoot, character.PersonaDirectory));
         var refAudio = ResolveReferenceAudio(character);
         var emotionReferences = EmotionReferenceCatalog.Load(
@@ -113,30 +148,55 @@ public sealed class AgentRuntimeFactory
         // memoryScope 用于「同一个角色的第二现场」（聊天室窗口）：两个内存中的 store
         // 指向同一个 json 会互相覆盖写入，所以聊天室另开一份而不是共用。
         var memoryOptions = MemoryOptions.FromEnvironment();
+        var memoryPath=hostPaths.Memory;
+        if(scope=="desktop" && (!sqlWrites || !File.Exists(authorityPath)) &&
+            (File.Exists(Path.Combine(_repoRoot,"data",$"memory_{character.Id}_desktop.json")) ||
+             File.Exists(Path.Combine(_repoRoot,"data",$"memory_{character.Id}_desktop.archive.jsonl"))))
+            throw new InvalidOperationException("An older explicit-desktop memory file requires reconciliation with the canonical desktop file before startup.");
+        var llm = BuildLlm(persona);
+        // 情境台词（兜底/提醒/剧情降级）缺专属台词时按人设补一条并持久化。
+        // 回填而不是构造时传入：建 LLM 要 persona，会成环（见 ScriptedLines.AttachGenerator）。
+        if (llm is not MockLlmProvider)
+        {
+            var generatorLlm = llm;
+            persona.Scripted.AttachGenerator((situation, ct) =>
+                GenerateScriptedLineAsync(generatorLlm, persona, situation, ct));
+        }
+        var knowledge=_knowledgeOptions.Mode==KnowledgeRuntimeMode.Legacy?null:
+            new KnowledgeRuntime(_knowledgeOptions,character.Id,scope,character.StoryCorpusDirectory,_log,expectedLineageId,llm);
+        try
+        {
+        var sqlMemory=sqlWrites?new SqlConversationMemoryRepository(knowledge!.Database,knowledge.Context.Access,memoryOptions.MaxActiveRecords):null;
+        if(sqlWrites && !File.Exists(authorityPath) && File.Exists(memoryPath) &&
+            !new HuTao.Knowledge.Import.MemoryJsonImporter(sqlMemory!).Import(memoryPath,dryRun:true).AlreadyImported)
+        {
+            throw new InvalidOperationException("JSON memory differs from SQL. Back up and migrate a current snapshot before SQL becomes authoritative.");
+        }
         var memoryStore = memoryOptions.Enabled
             ? new ConversationMemoryStore(
-                Path.Combine(_repoRoot, "data",
-                    $"memory_{character.Id}{(string.IsNullOrWhiteSpace(memoryScope) ? "" : "_" + memoryScope)}.json"),
-                memoryOptions, LocalDiagnosticLog.Default)
+                // 记忆归属：谁说的。旧数据没有这个标签，检索端会把它当"来源不明"，
+                // 不再当成当前角色说过的话（否则别的角色会模仿其自称）。
+                memoryPath, memoryOptions with { Persona = persona.Name },
+                LocalDiagnosticLog.Default,sqlMemory,sqlWrites?null:()=>fence.Acquire(legacy:true))
             : null;
-        if (memoryStore is not null)
-            ImportChatLogHistory(memoryStore, character);
+        if (memoryStore is not null && !sqlWrites)
+            ImportChatLogHistory(memoryStore, character, scope);
 
-        var llm = BuildLlm(persona);
-        var agent = new ReactAgent(
+        IAgentConversation agent = new ReactAgent(
             persona,
             llm,
             tts,
             tools,
             refAudio: voiceAvailable ? refAudio : null,
             refText: voiceAvailable ? character.ReferenceText : null,
-            importantMemory: CreateMemory(character, persona),
+            importantMemory: CreateMemory(character, persona,scope,sqlWrites?knowledge:null,File.Exists(authorityPath),sqlWrites?null:()=>fence.Acquire(legacy:true)),
             emotionReferences: emotionReferences,
             originalVoices: originalVoices,
             eventSink: eventSink,
             observationCollector: new ToolObservationCollector(llm, _approveTool,
                 allowAppAwareness, allowSideEffects: string.IsNullOrWhiteSpace(memoryScope)),
-            memory: memoryStore);
+            memory: memoryStore,knowledge:sqlWrites?knowledge!.Context:null,runtimeIsCurrent:sqlWrites?null:fence.LegacyIsCurrent);
+        if(_knowledgeOptions.Mode==KnowledgeRuntimeMode.Shadow)agent=new ShadowKnowledgeConversation(agent,knowledge!);
         var reader = tools.OfType<DocumentReadingTool>().Single();
 
         var maintenance = memoryStore is null
@@ -146,7 +206,16 @@ public sealed class AgentRuntimeFactory
                 new MemoryConsolidator(memoryStore, llm, memoryOptions, LocalDiagnosticLog.Default),
                 memoryOptions);
 
-        return new AgentRuntime(
+        if(sqlWrites)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(authorityPath)!);
+            var temporary=authorityPath+".tmp-"+Guid.NewGuid().ToString("N");
+            try {File.WriteAllText(temporary,JsonSerializer.Serialize(new {database=Path.GetFullPath(_knowledgeOptions.DatabasePath),space=knowledge!.Context.Access.MemoryNamespace,lineageId=HuTao.Knowledge.Storage.KnowledgeRecovery.ReadLineage(knowledge.Database)}));File.Move(temporary,authorityPath,true);}
+            finally {if(File.Exists(temporary))File.Delete(temporary);}
+        }
+        var legacyLifetime=sqlWrites?null:fence.RegisterLegacyRuntime();
+        var sqlLifetime=sqlWrites?fence.RegisterSqlRuntime():null;
+        var runtime=new AgentRuntime(
             character,
             persona,
             agent,
@@ -156,21 +225,32 @@ public sealed class AgentRuntimeFactory
             originalVoices,
             tools,
             maintenance,
-            memoryStore);
+            memoryStore,knowledge,legacyLifetime,sqlLifetime,scope);
+        try {knowledge?.Activate();}
+        catch {legacyLifetime?.Dispose();sqlLifetime?.Dispose();throw;}
+        return runtime;
+        }
+        catch
+        {
+            knowledge?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            throw;
+        }
     }
 
     /// <summary>
     /// 把功能上线之前的聊天记录补进记忆库。游标存在记忆文件里，
     /// 所以反复启动不会重复导入，也不会把用户已有的历史丢掉。
     /// </summary>
-    private void ImportChatLogHistory(ConversationMemoryStore store, CharacterDefinition character)
+    private void ImportChatLogHistory(ConversationMemoryStore store, CharacterDefinition character, string scope)
     {
         try
         {
-            var logPath = Path.Combine(_repoRoot, "data", $"chat_log_{character.Id}.json");
+            var logPath = KnowledgeHostPaths.Resolve(_repoRoot,character,_knowledgeOptions.UserId,scope).ChatLog!;
             if (!File.Exists(logPath))
                 return;
-            var entries = JsonSerializer.Deserialize<List<ChatEntry>>(File.ReadAllText(logPath)) ?? [];
+            // Use the same privacy boundary as the host display. A SQL-stamped log
+            // must be explicitly converted during rollback, never imported as legacy text.
+            var entries = new ChatLogStore(logPath).Load();
             if (entries.Count == 0)
                 return;
             var imported = store.ImportChatLog(
@@ -202,7 +282,7 @@ public sealed class AgentRuntimeFactory
     {
         // 剧情检索按「有没有语料」装配，而不是按角色 id 硬编码。
         // 这里先取出来是为了同时注册工具与预热索引。
-        var storyRag = GetStoryRag(character, lexicon);
+        var storyRag = _knowledgeOptions.Mode is KnowledgeRuntimeMode.Sql or KnowledgeRuntimeMode.SqlGraph?null:GetStoryRag(character, lexicon);
         if (storyRag is not null)
             _ = WarmStoryAsync(storyRag, character.Id);
 
@@ -250,14 +330,24 @@ public sealed class AgentRuntimeFactory
     /// 加一个新角色想要这个能力，就得回来改这行代码。现在只看
     /// <see cref="CharacterDefinition.ImportantMemoryFile"/> 有没有配。
     /// </summary>
-    private ImportantMemoryStore? CreateMemory(CharacterDefinition character, PersonaProfile persona)
+    private ImportantMemoryStore? CreateMemory(CharacterDefinition character, PersonaProfile persona,string scope,KnowledgeRuntime? knowledge,bool existingSqlAuthority,Func<IDisposable>? accessLease)
     {
         if (string.IsNullOrWhiteSpace(character.ImportantMemoryFile))
             return null;
-        return new ImportantMemoryStore(
-            Path.Combine(_repoRoot, character.ImportantMemoryFile),
+        var path=KnowledgeHostPaths.Resolve(_repoRoot,character,_knowledgeOptions.UserId,scope).ImportantItems!;
+        var repository=knowledge is null?null:new SqlImportantItemRepository(knowledge.Database,knowledge.Context.Access);
+        if(repository is not null && !existingSqlAuthority && File.Exists(path))
+        {
+            var legacy=JsonSerializer.Deserialize<List<ImportantMemory>>(File.ReadAllText(path))
+                ??throw new InvalidDataException("Invalid important-item JSON.");
+            static DateTimeOffset? Milliseconds(DateTimeOffset? value)=>value is null?null:DateTimeOffset.FromUnixTimeMilliseconds(value.Value.ToUnixTimeMilliseconds());
+            var expected=legacy.Select(i=>new ImportantItem(i.Id,i.Content,Milliseconds(i.CreatedAt)!.Value,Milliseconds(i.DueAt),Milliseconds(i.LastOfferedAt))).OrderBy(i=>i.Id);
+            if(!expected.SequenceEqual(repository.Load().OrderBy(i=>i.Id)))
+                throw new InvalidOperationException("Important-item JSON differs from SQL. Migrate a current snapshot before activation.");
+        }
+        return new ImportantMemoryStore(path,
             // 唤醒词来自角色词表：默认只认角色名本身；胡桃的「本堂主 / 桃桃」等来自 lexicon.json。
-            wakeWords: persona.EffectiveLexicon.ImportantMemoryWakeWords(persona.Name));
+            wakeWords: persona.EffectiveLexicon.ImportantMemoryWakeWords(persona.Name),repository:repository,accessLease:accessLease);
     }
 
     private async Task WarmStoryAsync(StoryRagService service, string characterId)
@@ -266,8 +356,38 @@ public sealed class AgentRuntimeFactory
         catch (Exception ex) { _log?.Invoke($"[story] {characterId} 语料预热失败: {ex.GetType().Name}"); }
     }
 
-    private ILLMProvider BuildLlm(PersonaProfile persona)
+    /// <summary>
+    /// 按人设生成一条情境台词。**只给这一句话、温度压到 0.4**：
+    /// 兜底台词是"安全网"，不该像创作一样每跑一次就变个样。
+    /// 失败一律返回 null —— 上层会退回中性语气，聊天不该因为兜底台词挂掉。
+    /// </summary>
+    private async Task<string?> GenerateScriptedLineAsync(
+        ILLMProvider llm, PersonaProfile persona,
+        HuTao.Persona.ScriptedLines.Situation situation, CancellationToken ct)
     {
+        try
+        {
+            var prompt = persona.Scripted.BuildPrompt(situation);
+            var reply = await llm.CompleteAsync(
+                prompt, [new ChatMessage("user", "（轮到你说话了。）")], ct).ConfigureAwait(false);
+            var text = (reply ?? "").Trim().Trim('"', '「', '」');
+            if (text.Length == 0)
+                return null;
+            // 生成物也得守出戏底线：自称 AI、客服腔一律不要。
+            var flat = text.Replace("\r", " ").Replace("\n", " ").Trim();
+            _log?.Invoke($"[scripted] {persona.Name} · {situation} → {flat}");
+            return flat;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _log?.Invoke($"[scripted] 生成失败（{persona.Name} · {situation}）：{ex.GetType().Name}");
+            return null;
+        }
+    }
+
+    private ILLMProvider BuildLlm(PersonaProfile persona)    {
+        if(_llmFactory is not null)return _llmFactory(persona);
         var key = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
         if (!string.IsNullOrWhiteSpace(key))
         {

@@ -23,7 +23,8 @@ public sealed class StoryRagService : IStoryRagService
     /// 不传就只有语料词表——检索照常工作，只是不再认识这个角色。
     /// </param>
     public StoryRagService(string dialogueRoot, StoryVectorStore summaries, StoryRagOptions? options = null,
-        IStorySemanticSearch? semantic = null, StoryLexicon? characterLexicon = null)
+        IStorySemanticSearch? semantic = null, StoryLexicon? characterLexicon = null,
+        HuTao.Knowledge.Storage.SqliteKnowledgeDatabase? sqlDatabase = null, string? sqlNamespace = null)
     {
         _summaries = summaries;
         _options = options ?? new StoryRagOptions();
@@ -38,8 +39,14 @@ public sealed class StoryRagService : IStoryRagService
         merged.Entities = [.. merged.Entities, .. summaries.Characters.Where(c => !merged.Entities.Contains(c))];
         _lexicon = merged;
 
-        _index = new Lazy<Task<StoryLineIndex>>(() =>
-            Task.Run(() => StoryLineIndex.Load(Path.Combine(dialogueRoot, "chapters"), _lexicon)));
+        _index = new Lazy<Task<StoryLineIndex>>(() => Task.Run(() =>
+        {
+            if(sqlDatabase is null) return StoryLineIndex.Load(Path.Combine(dialogueRoot,"chapters"),_lexicon);
+            var space=sqlNamespace??throw new ArgumentException("SQL corpus namespace required.");
+            var importer=new HuTao.Knowledge.Import.StorySqlImporter(sqlDatabase);
+            importer.Import(space,dialogueRoot,_lexicon);
+            return StoryLineIndex.FromCorpus(importer.LoadActive(space),_lexicon);
+        }));
     }
 
     /// <summary>当前生效的词表（角色 + 语料 + 索引实体）。</summary>

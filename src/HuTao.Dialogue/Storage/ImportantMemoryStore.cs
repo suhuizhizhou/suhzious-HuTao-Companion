@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using HuTao.Knowledge.Memory;
 
 namespace HuTao.Dialogue.Storage;
 
@@ -28,9 +29,11 @@ public sealed class ImportantMemoryStore
     /// 允许出现在指令前的称呼（角色名 + 自称，如 胡桃 / 本堂主 / 桃桃）。
     /// 为空时不接受任何前缀，只认裸指令。
     /// </param>
-    public ImportantMemoryStore(string path, IEnumerable<string>? wakeWords = null)
+    public ImportantMemoryStore(string path, IEnumerable<string>? wakeWords = null, SqlImportantItemRepository? repository = null, Func<IDisposable>? accessLease = null)
     {
         _path = Path.GetFullPath(path);
+        _repository = repository;
+        _accessLease = accessLease;
         var prefix = BuildWakeWordPrefix(wakeWords);
         _rememberPattern = new Regex(
             $@"^\s*{prefix}(?:请)?(?:帮我)?(?:记住|记一下|记得|提醒我)\s*[：:]?\s*(?<content>.+?)\s*$",
@@ -54,19 +57,30 @@ public sealed class ImportantMemoryStore
     }
 
     private readonly string _path;
+    private readonly SqlImportantItemRepository? _repository;
+    private readonly Func<IDisposable>? _accessLease;
     private readonly object _gate = new();
     private List<ImportantMemory> _memories;
+    public bool LastOperationWasForget {get;private set;}
+    public string? LastRememberedEvidenceId {get;private set;}
 
     /// <summary>为当前一轮对话准备最小必要的记忆上下文；无内容时返回空字符串。</summary>
     public string PreparePrompt(string? userInput, bool isProactive, DateTimeOffset now)
     {
         lock (_gate)
         {
+            using var lease=_accessLease?.Invoke();
+            LastOperationWasForget=false;
+            LastRememberedEvidenceId=null;
+            if(_repository is not null)_memories=Load();
             if (!string.IsNullOrWhiteSpace(userInput))
             {
                 var forget = _forgetPattern.Match(userInput);
                 if (forget.Success)
+                {
+                    LastOperationWasForget=true;
                     return Forget(forget.Groups["content"].Value.Trim());
+                }
 
                 var remember = _rememberPattern.Match(userInput);
                 if (remember.Success)
@@ -95,6 +109,7 @@ public sealed class ImportantMemoryStore
             _memories.Add(memory);
 
         TrimAndSave();
+        if(_repository is not null)LastRememberedEvidenceId="important:"+_memories.Single(m=>string.Equals(m.Content,content,StringComparison.OrdinalIgnoreCase)).Id.ToString("N");
         var dueText = dueAt is null
             ? "未解析到明确截止时间，不要擅自补日期。"
             : $"解析到的截止时间为 {dueAt.Value:yyyy-MM-dd HH:mm}。";
@@ -112,8 +127,8 @@ public sealed class ImportantMemoryStore
         if (removed > 0)
             Save();
         return removed > 0
-            ? $"【重要事项记忆】已按用户要求删除与“{query}”相关的 {removed} 条事项，请简短确认。"
-            : $"【重要事项记忆】没有找到与“{query}”相关的事项，请如实说明。";
+            ? $"【重要事项记忆】已按用户要求删除 {removed} 条事项，请简短确认，不复述被删除的内容。"
+            : "【重要事项记忆】没有找到符合删除条件的事项，请如实说明，不复述删除请求中的内容。";
     }
 
     private string RecallPrompt(string query)
@@ -292,6 +307,8 @@ public sealed class ImportantMemoryStore
 
     private List<ImportantMemory> Load()
     {
+        if (_repository is not null)
+            return _repository.Load().Select(i => new ImportantMemory(i.Id,i.Content,i.CreatedAt,i.DueAt,i.LastOfferedAt)).ToList();
         if (!File.Exists(_path))
             return [];
         try
@@ -313,6 +330,12 @@ public sealed class ImportantMemoryStore
 
     private void Save()
     {
+        if (_repository is not null)
+        {
+            try { _repository.Save(_memories.Select(i => new ImportantItem(i.Id,i.Content,i.CreatedAt,i.DueAt,i.LastOfferedAt)).ToArray()); }
+            catch { _memories=Load(); throw; }
+            return;
+        }
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);

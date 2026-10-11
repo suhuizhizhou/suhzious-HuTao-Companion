@@ -77,14 +77,14 @@ public sealed record RetrievalTraceCandidate(
 ///   契约是「不存用户输入、模型正文、密钥」——它的用途是排查崩溃与统计。
 /// - 本类相反：它是**给人读的运行叙事**，会包含用户输入、召回到的原文、草稿与最终答复。
 ///   默认只写本机（`%LOCALAPPDATA%\HuTaoCompanion\logs\`）、有大小上限与轮转、
-///   可用 `HU_TAO_TRACE=off` 整体关掉，且**绝不进入角色历史或任何对外通道**。
+///   仅显式设置 `HU_TAO_TRACE=on` 开启，且**绝不进入角色历史或任何对外通道**。
 ///
 /// 之所以要单独有这么一份：出问题时真正要看的是「这一轮到底检索了什么、召回了哪几行、
 /// 闸门改没改、最后答了什么」，而这些在诊断日志里被**故意**丢掉了，
 /// 在评测报告里又只存在于跑了评测的那一次。平时聊天出问题，只有这份日志能复盘。
 ///
 /// 环境变量：
-/// - <c>HU_TAO_TRACE</c>：<c>off/false/0</c> 关闭；缺省开启。
+/// - <c>HU_TAO_TRACE</c>：仅 <c>on/true/1/yes</c> 开启含正文追踪；缺省关闭。
 /// - <c>HU_TAO_TRACE_PATH</c>：自定义文件路径。
 /// - <c>HU_TAO_TRACE_EVIDENCE</c>：每条 RAG 调用打印多少行证据（默认 3）。
 /// - <c>HU_TAO_TRACE_MAX_MB</c>：单文件上限，超过即轮转为 <c>.1</c>（默认 8）。
@@ -310,11 +310,8 @@ public sealed class BackendTrace
     private static bool ReadFlag(string name)
     {
         var value = Environment.GetEnvironmentVariable(name)?.Trim();
-        if (string.IsNullOrEmpty(value))
-            return true;
-        return !(value.Equals("off", StringComparison.OrdinalIgnoreCase) ||
-                 value.Equals("false", StringComparison.OrdinalIgnoreCase) ||
-                 value == "0" || value.Equals("no", StringComparison.OrdinalIgnoreCase));
+        return value is not null && (value.Equals("on",StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("true",StringComparison.OrdinalIgnoreCase) || value=="1" || value.Equals("yes",StringComparison.OrdinalIgnoreCase));
     }
 
     private static int ReadInt(string name, int fallback)
@@ -377,6 +374,13 @@ public sealed class TurnTrace
     }
 
     /// <summary>收尾并落盘。重复调用无效果，避免 finally 与正常路径各写一次。</summary>
+    public void Discard()
+    {
+        _ended=true;_sb.Clear();
+        if(ReferenceEquals(BackendTrace.Current,this))BackendTrace.ClearAmbient();
+    }
+
+    /// <summary>收尾并落盘。重复调用无效果。</summary>
     public void End(string? footer = null)
     {
         if (_ended)

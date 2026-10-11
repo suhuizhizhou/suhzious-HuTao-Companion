@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -8,7 +8,10 @@ namespace HuTao.Pet;
 /// <summary>角色选择器与角色切换队列。播放中的台词结束后才真正切换。</summary>
 public partial class MainWindow
 {
-    private void Switch_Click(object sender, RoutedEventArgs e)
+    private void Switch_Click(object sender, RoutedEventArgs e) => ShowCharacterPicker();
+
+    /// <summary>打开角色选择面板。抽成无参方法供聊天窗侧边栏复用。</summary>
+    private void ShowCharacterPicker()
     {
         RenderCharacterPicker();
         CharacterPickerPopup.IsOpen = !CharacterPickerPopup.IsOpen;
@@ -98,6 +101,7 @@ public partial class MainWindow
 
     private void CharacterOption_Click(object sender, RoutedEventArgs e)
     {
+        if(_cts.IsCancellationRequested)return;
         if (sender is not Button { Tag: int index })
             return;
 
@@ -107,7 +111,7 @@ public partial class MainWindow
 
         _pendingCharacterIndex = index;
         if (!_characterSwitchLoopRunning)
-            _ = RunCharacterSwitchLoopAsync();
+            _characterSwitchTask = RunCharacterSwitchLoopAsync();
     }
 
     private async Task RunCharacterSwitchLoopAsync()
@@ -122,7 +126,7 @@ public partial class MainWindow
                 while (_talking && !_cts.IsCancellationRequested)
                     await Task.Delay(80, _cts.Token);
 
-                if (next != _currentIndex)
+                if (next != _currentIndex && !_cts.IsCancellationRequested)
                     await LoadCharacterAsync(next);
             }
         }

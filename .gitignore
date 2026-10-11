@@ -38,10 +38,13 @@ data/important_memories*.json
 data/memory_*.json
 data/memory_*.archive.jsonl
 data/important_memories*.json
-# 异环(NTE) 提取产物（模型/语音/剧情/人设包），绝不入库
+data/conversations/
+# (NTE) 提取产物（模型/语音/剧情/人设包），绝不入库
 data/nte/
 data/reading/
 data/tool-workspace/
+data/knowledge/
+evaluation/knowledge-rag/results/
 .env
 .env.*
 !.env.example
@@ -96,6 +99,9 @@ data/story/semantic/
 evaluation/story-rag/results/*
 !evaluation/story-rag/results/semantic-smoke.json
 !evaluation/story-rag/results/summary.md
+
+# ── knowledge RAG 产物 ──
+evaluation/knowledge-rag
 
 # ── SDK / NuGet 本地缓存 ──
 .cache/

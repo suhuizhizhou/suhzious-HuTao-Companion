@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 using HuTao.Dialogue.Core;
 using HuTao.Foundation.Diagnostics;
 using HuTao.Dialogue.Immersion;
@@ -10,6 +10,7 @@ internal static class ConversationChecks
     public static async Task<List<CheckResult>> RunAsync()
     {
         var checks = new List<CheckResult>();
+        checks.AddRange(ResponseRepairChecks.Run());
         void Check(string name, bool ok, string detail = "") => checks.Add(new(name, ok, detail));
         var root = Path.Combine(Path.GetTempPath(), "hutao-conversation-checks-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -83,7 +84,18 @@ internal static class ConversationChecks
                 new StoryRagTrace("test", 0, false, 0, 0, "none", []));
             var noData = StoryAnswerComposer.Fallback(result, [], "deterministic-boundary");
             var failed = StoryAnswerComposer.Fallback(result, ["missing_citation"], "validation-fallback");
-            Check("generation_failure_not_claimed_as_missing_knowledge", noData.Reply.Contains("可靠的依据") && !failed.Reply.Contains("可靠的依据"));
+            // 语义：**生成失败**不许被说成"资料不够"。这里的文案来自 ScriptedLines，
+            // 所以断言**不再写死某一句**，而是比对"资料不够"与"生成失败"两个中性文案本身——
+            // 台词文案会改，语义不该跟着改。
+            var missingKnowledgeLine = ScriptedLines.Neutral(ScriptedLines.Situation.StoryNoEvidence);
+            var generationFailureLine = ScriptedLines.Neutral(ScriptedLines.Situation.ModelFailure);
+            Check("generation_failure_not_claimed_as_missing_knowledge",
+                noData.Reply.Contains(missingKnowledgeLine, StringComparison.Ordinal) &&
+                !failed.Reply.Contains(missingKnowledgeLine, StringComparison.Ordinal),
+                $"noData='{noData.Reply}' failed='{failed.Reply}'");
+            Check("generation_failure_uses_its_own_line",
+                failed.Reply.Contains(generationFailureLine, StringComparison.Ordinal),
+                failed.Reply);
             Check("generation_failure_keeps_diagnostic_reason", failed.Issues.Contains("missing_citation") && failed.Path == "validation-fallback");
         }
         catch (Exception ex) { checks.Add(new("conversation_unexpected", false, ex.GetType().Name)); }

@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 using HuTao.Voice;
 
 namespace HuTao.Voice;
@@ -12,6 +12,17 @@ public static class TtsRuntimeFactory
         bool preferResident = true,
         Action<string>? log = null)
     {
+        // 强制文字模式。存在的理由是**真实联调**：语音合成每段要几十秒，
+        // 而绝大多数联调要验的是"用户的话有没有进模型、回复有没有分段"，
+        // 跟音频无关。开着 TTS 只会让每轮测试慢一个数量级。
+        // 项目本来就有文字降级路径（SpeechDeliverySession 在合成失败后 _textOnly），
+        // 所以这里直接不建引擎即可，不需要另写一条链路。
+        if (IsTruthy(Environment.GetEnvironmentVariable("HU_TAO_TTS_DISABLED")))
+        {
+            log?.Invoke("[tts] HU_TAO_TTS_DISABLED 已设置，使用文字模式（不合成语音）");
+            return null;
+        }
+
         var root = Path.GetFullPath(repoRoot);
         var bundledPython = Path.Combine(root, "voice", "python", "python.exe");
         var developerPython = Path.Combine(root, "voice", ".venv", "Scripts", "python.exe");
@@ -86,4 +97,11 @@ public static class TtsRuntimeFactory
         log?.Invoke("[tts] 使用 GPT-SoVITS 常驻服务，并保留按需模式作为降级");
         return new FallbackTtsEngine(resident, onDemand);
     }
+
+    /// <summary>"1/true/on/yes" 视为真；其余（含未设置）为假。</summary>
+    private static bool IsTruthy(string? value)
+        => !string.IsNullOrWhiteSpace(value) &&
+           (value.Trim() is "1" || value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Trim().Equals("on", StringComparison.OrdinalIgnoreCase)
+            || value.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase));
 }

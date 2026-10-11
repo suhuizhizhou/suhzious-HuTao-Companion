@@ -28,10 +28,12 @@ internal static class RecallChecks
             Check("recall_paraphrase_finds_personal_preference", result.Memories.Any(h => h.Record.Id == seed.Id));
             Check("recall_query_trace_has_source_ids", result.Steps.Any(s => s.Query == "咖啡 乌龙茶" && s.EvidenceIds.Contains("memory:" + seed.Id)));
             Check("recall_no_story_for_personal_question", result.Story is null);
-            var semantic = new MemoryRecallStrategy(retriever, new FixedLlm($"{{\"ids\":[\"{seed.Id}\",\"invented\"]}}"));
+            var semantic = new MemoryRecallStrategy(retriever, new FixedLlm($"{{\"ids\":[\"{seed.Id}\"]}}"));
             var semanticHit = await semantic.RecallAsync(new("饮品禁忌", [], now, new HashSet<string>()), default);
             Check("recall_semantic_selection_only_returns_real_ids", semanticHit.Memories.Count == 1 &&
                 semanticHit.Memories[0].Record.Id == seed.Id && semanticHit.Memories[0].Reason.Contains("semantic-selection"));
+            var forgedSelection = new MemoryRecallStrategy(retriever, new FixedLlm($"{{\"ids\":[\"{seed.Id}\",\"invented\"]}}"));
+            Check("recall_semantic_mixed_forged_selection_rejected",(await forgedSelection.RecallAsync(new("饮品禁忌",[],now,new HashSet<string>()),default)).Memories.Count==0);
             var semanticExcluded = await semantic.RecallAsync(new("饮品禁忌", [], now,
                 new HashSet<string> { seed.Fingerprint }), default);
             Check("recall_semantic_selection_respects_exclusions", semanticExcluded.Memories.Count == 0);
@@ -76,6 +78,35 @@ internal static class RecallChecks
                 immersionOptions: new ImmersionOptions { EnableCritic = false, EnableRuleGate = false });
             var turn = await agent.GenerateTextAsync("写累了，喝点什么？", false);
             Check("recall_real_agent_injects_personal_evidence", turn.Recall?.Memories.Any(h => h.Record.Id == seed.Id) == true && actor.LastPrompt.Contains(seed.Text));
+            var dependentPlan="""
+                {"intent":"帽子做法","memory_queries":[],"story_tasks":[
+                  {"id":"locate","query":"胡桃 帽子","required_facts":["帽子"],"depends_on":[],"strategy":"Baseline"},
+                  {"id":"detail","query":"胡桃 帽子做法","required_facts":["亲手"],"depends_on":["locate"],"strategy":"ChapterScope"}]}
+                """;
+            var graphActor=new FixedLlm(dependentPlan,"{\"answerability\":\"supported\",\"segments\":[{\"text\":\"帽子是我亲手改的。\",\"kind\":\"fact\",\"evidence_ids\":[\""+grounded.Evidence[0].Id+"\"]}]}");
+            var dependencyAgent=new ReactAgent(persona,graphActor,null,[new StoryKnowledgeTool(lore)],
+                immersionOptions:new ImmersionOptions{EnableCritic=false,EnableRuleGate=false});
+            var dependencyTurn=await dependencyAgent.GenerateTextAsync("胡桃，你的帽子怎么做的？",false);
+            Check("recall_real_agent_executes_joint_dependencies",dependencyTurn.Recall?.Story?.Steps.Any(s=>s.TaskId=="detail" && s.DependsOn!.SequenceEqual(["locate"]) && s.ChapterScopeSize==1 && s.RequiredFacts!.Contains("亲手"))==true);
+            Check("recall_provided_plan_not_replanned",graphActor.StoryPlannerCalls==0);
+            var validationFailures=0;
+            foreach(var invalid in new ReactSubTask[][]
+            {
+                [new("x","甲",[],[]),new("x","乙",[],[])],
+                [new("x","甲",[],["y"]),new("y","乙",[],["x"])],
+                [new("x","甲",[],["missing"])],
+                [new("x","甲",[],[]),new("y","乙",[],["x"]),new("z","丙",[],["y"])]
+            })
+            {try {ReactTaskPlanValidator.Validate(invalid);}catch(InvalidDataException){validationFailures++;}}
+            Check("recall_rejects_duplicate_cycle_unknown_and_depth",validationFailures==4);
+            var safeFallback=await loop.RunAsync("胡桃 帽子",[],plannedTasks:[new("x","不应执行的查询",[],["missing"])]);
+            Check("recall_invalid_dependency_entire_plan_fallback",safeFallback?.Steps.Count==1 && safeFallback.Steps[0].Query.Contains("帽子") && safeFallback.Steps[0].TaskId=="t1");
+            var missingUpstream=await loop.RunAsync("找不到",[],plannedTasks:[new("locate","找不到",[],[]),new("detail","胡桃 帽子",[],["locate"],RetrievalStrategy.ChapterScope)]);
+            Check("recall_missing_upstream_does_not_expand_globally",missingUpstream?.Steps.Any(s=>s.TaskId=="detail" && s.EvidenceCount==0 && s.Reason=="dependency-evidence-missing")==true);
+            var badScopePlan=new ConversationRecall(new FixedLlm("{\"memory_queries\":[],\"story_tasks\":[{\"query\":\"胡桃 帽子\",\"namespace\":\"private\"}]}"),StoryLexicon.Empty,[new StoryRecallStrategy(loop)]);
+            var scoped=await badScopePlan.RunAsync("胡桃 帽子",[],now,default);
+            Check("recall_model_namespace_field_rejected",scoped.Planning=="fallback:InvalidDataException");
+            held.Clear();Check("recall_clear_focus_removes_all_working_memory",held.Turns.Count==0 && held.HeldEvidenceIds.Count==0 && held.RecentQueries(3).Count==0);
         }
         finally { Directory.Delete(root, true); }
         return checks;
@@ -86,9 +117,11 @@ internal static class RecallChecks
         public string Text => text;
         public string Name => "recall-fixture";
         public string LastPrompt { get; private set; } = "";
+        public int StoryPlannerCalls {get;private set;}
         public Task<string> CompleteAsync(string prompt, IReadOnlyList<ChatMessage> history, CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested(); LastPrompt = prompt;
+            if(prompt.Contains("Story RAG Query Planner"))StoryPlannerCalls++;
             return Task.FromResult(reply is null || prompt.Contains("Conversation Recall Planner") ? text : reply);
         }
     }

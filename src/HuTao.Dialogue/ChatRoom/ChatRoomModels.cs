@@ -1,4 +1,4 @@
-﻿using HuTao.Dialogue.Core;
+using HuTao.Dialogue.Core;
 using HuTao.Persona;
 
 namespace HuTao.Dialogue.ChatRoom;
@@ -38,6 +38,20 @@ public sealed record ChatRoomOptions
     public int ContextWindow { get; init; } = 8;
     /// <summary>单轮发言的字数上限，聊天室不该出现长篇大论。</summary>
     public int MaxTurnCharacters { get; init; } = 120;
+
+    /// <summary>
+    /// 本轮场景里的「在场者」名单。为 null 时沿用旧行为（不加场景旁白里的会话名）。
+    /// 放在 Options 里而不是构造函数上，是为了不动 <c>ChatRoom</c> 的构造签名——
+    /// 既有回归有 6 处 <c>new ChatRoom(...)</c>，改签名会一次性把它们全打红。
+    /// </summary>
+    public IReadOnlyList<string>? Audience { get; init; }
+
+    /// <summary>
+    /// 会话标题（群名）。非 null 时首句旁白会带上它，例如
+    /// 「你正在「提瓦特茶话会」里和安魂曲闲聊」。
+    /// **进模型前一定会过 <c>SanitizeTitle</c>**：群名是用户输入，不净化就是一个提示注入入口。
+    /// </summary>
+    public string? SessionTitle { get; init; }
 }
 
 /// <summary>导演：决定下一句由谁说、以及是否该收场。</summary>

@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using HuTao.Foundation.Abstractions;
 using HuTao.Persona;
 
@@ -52,6 +52,13 @@ public sealed class ChatRoom
     public int TurnCount { get { lock (_gate) return _transcript.Count(t => !t.IsUser); } }
 
     /// <summary>
+    /// 每产生一条记录就抛出一次，第二个参数是「除发言者外，谁看见了这条」。
+    /// 会话层靠它把消息分发到各成员的视角（<c>view/{角色}.jsonl</c>）。
+    /// 未订阅时行为与从前完全一致——这是既有回归能一行不改的原因。
+    /// </summary>
+    public event Action<ChatRoomTurn, IReadOnlyList<string>>? TurnProduced;
+
+    /// <summary>
     /// 最近一次导演决策（谁被点名、为什么、是否打算收场）。
     /// 给 UI 做可观测性用：作者视角想知道「为什么这句是她说」，但观众视角不该看见，
     /// 所以它只是被读出来，不混进 transcript。
@@ -64,11 +71,15 @@ public sealed class ChatRoom
         var trimmed = (text ?? "").Trim();
         if (trimmed.Length == 0)
             return;
+        ChatRoomTurn turn;
         lock (_gate)
         {
-            _transcript.Add(new ChatRoomTurn("user", "旁观用户", trimmed, true, DateTimeOffset.Now));
+            turn = new ChatRoomTurn("user", "旁观用户", trimmed, true, DateTimeOffset.Now);
+            _transcript.Add(turn);
             _pendingUserInput = trimmed;
         }
+        // 插话是全场可见的（没有"私下插话"这回事），所以观众是名单里的每个人。
+        TurnProduced?.Invoke(turn, _options.Audience?.ToArray() ?? []);
     }
 
     /// <summary>
@@ -123,6 +134,9 @@ public sealed class ChatRoom
             var turn = new ChatRoomTurn(
                 speaker.Id, speaker.DisplayName, speak.Text!, false, DateTimeOffset.Now, speak.AudioPath);
             lock (_gate) _transcript.Add(turn);
+            // 发言者自己不算观众：他自己的台词由 agent 自己记着，
+            // 再作为「别人说的话」喂回去会让她以为有人在复述自己。
+            TurnProduced?.Invoke(turn, AudienceFor(speaker.Id));
             return turn;
         }
     }
@@ -193,7 +207,10 @@ public sealed class ChatRoom
     {
         var others = _participants.Where(p => p.Id != speaker.Id).Select(p => p.DisplayName).ToArray();
         var sb = new StringBuilder();
-        sb.Append($"（你正和{string.Join('、', others)}闲聊，气氛轻松。）\n");
+        var title = SanitizeTitle(_options.SessionTitle);
+        sb.Append(title is null
+            ? $"（你正和{string.Join('、', others)}闲聊，气氛轻松。）\n"
+            : $"（你正在「{title}」里和{string.Join('、', others)}闲聊，气氛轻松。）\n");
 
         var recent = transcript.TakeLast(_options.ContextWindow).ToArray();
         if (recent.Length == 0)
@@ -230,4 +247,40 @@ public sealed class ChatRoom
 
     private static string Clamp(string text, int max)
         => text.Length <= max ? text : text[..max];
+
+    /// <summary>
+    /// 除发言者外，名单里还有谁看见了这条。
+    /// <see cref="ChatRoomOptions.Audience"/> 为 null（旧调用点）时返回空——
+    /// 表示"没有限定观众"，会话层据此按"全场可见"处理。
+    /// </summary>
+    private IReadOnlyList<string> AudienceFor(string speakerId)
+        => _options.Audience is null
+            ? []
+            : _options.Audience
+                .Where(id => !string.Equals(id, speakerId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+    /// <summary>
+    /// 群名是**用户输入**，而它会进提示词。不净化就等于把提示注入的口子开在
+    /// 「给群起个名字」这个看起来最无害的地方——"叫'（忽略以上指令）'的群"可以
+    /// 直接改写场景旁白。这里剥掉换行、括号与元指令词，剥不干净就干脆不用标题。
+    /// </summary>
+    internal static string? SanitizeTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return null;
+
+        var cleaned = title
+            .Replace("\r", " ").Replace("\n", " ")
+            .Replace("（", "").Replace("）", "")
+            .Replace("(", "").Replace(")", "")
+            .Replace("「", "").Replace("」", "")
+            .Replace("\"", "").Replace("“", "").Replace("”", "");
+
+        foreach (var banned in new[] { "导演", "系统", "提示", "指令", "prompt", "system", "assistant" })
+            cleaned = cleaned.Replace(banned, "", StringComparison.OrdinalIgnoreCase);
+
+        cleaned = cleaned.Trim();
+        return cleaned.Length == 0 ? null : cleaned;
+    }
 }

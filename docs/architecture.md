@@ -2,6 +2,8 @@
 
 项目按“领域模型—应用服务—基础设施—宿主适配器”组织。目标是让新增文档格式、TTS 后端、Agent 工具或 UI 功能时，只替换对应边界，不把实现细节继续堆到 `ReactAgent` 或 `MainWindow.xaml.cs`。
 
+最新的自上而下阅读顺序、职责归属与离线验证入口见 [模块维护地图](modules.md)。
+
 ## 运行时装配
 
 ```text
@@ -84,7 +86,7 @@ ReactAgent
   → IAudioSegmentMerger          # FFmpeg MP3；未来可替换其他编码器
 ```
 
-当前默认实现位于 `Core/DocumentReading/`：
+当前默认实现位于 `src/HuTao.Knowledge/DocumentReading/`：
 
 - `DocumentTextExtractor`：格式解析，不包含 TTS 逻辑；
 - `ReadingPlanBuilder`：确定性切分和关键词情绪判断，可替换为 LLM 规划器；
@@ -112,7 +114,7 @@ ReactAgent
 
 StoryKnowledgeTool 仅适配 Agent 工具；IStoryRagService 管理查询、共享快照、预算和缓存；StoryCorpus 管理来源；StoryLineIndex 负责 BM25/RRF/合法窗口；IStorySemanticSearch 是可选本机 Dense 边界；StoryAnswerComposer 独立负责短回复协议与结构校验。
 
-ReactAgent 每轮只调用一次剧情服务，并把隐藏证据保存在 TextResult/AgentTurnResult，避免与 TTS 或 WPF 耦合。详见 [Story RAG 白盒文档](story-rag.md) 与 [测试规范](story-rag-benchmark.md)。
+ReactAgent 通过召回编排获取证据；ReAct 子问题和检索重试可能触发多次查询，并非每轮只检索一次。中间证据、检索过程与最终可投递台词分离，最终结果保存在 TextResult/AgentTurnResult，避免与 TTS 或 WPF 耦合。详见 [Story RAG 白盒文档](story-rag.md) 与 [测试规范](story-rag-benchmark.md)。
 
 ```text
 src/                          # C# 库，按依赖方向分层（箭头只能向下，见 docs/modules.md）
@@ -121,20 +123,34 @@ src/                          # C# 库，按依赖方向分层（箭头只能向
 ├── HuTao.Voice/              # TTS 引擎（常驻/按需/兜底）+ 情绪参考
 ├── HuTao.Persona/            # 人设包、角色词表、原声目录与召回、角色配置
 ├── HuTao.Knowledge/          # 剧情 RAG、长期记忆、文档朗读
-└── HuTao.Dialogue/           # ReactAgent、沉浸闸门、聊天室、工具、存储、LLM 实现
+└── HuTao.Dialogue/           # ReactAgent、沉浸闸门、聊天室、会话、工具、存储、LLM 实现
     ├── Core/                 #   ReactAgent、调度器等领域编排
     ├── Immersion/            #   出戏规则闸门、LLM 评审与编排管线
-    ├── ChatRoom/             #   多人聊天室：轮次、导演接口、LLM 导演
+    ├── Sessions/             #   QQNT 会话层：模型/存储/目录表/视角投影/编排/迁移
+    ├── ChatRoom/             #   多人聊天室：轮次、导演接口、LLM 导演（群聊仍用它）
     ├── Tools/                #   工具适配器（含 CLI 包装与 MCP 适配）
-    ├── Storage/              #   聊天记录、重要记忆
+    ├── Storage/              #   聊天记录、重要记忆、生成音频的删除白名单
     ├── Llm/                  #   DeepSeek / Mock 实现
-    └── Runtime/              #   AgentRuntimeFactory 组合根
-hosts/                        # 可执行宿主：HuTao.Pet（WPF 桌宠）、HuTao.Host（控制台）
-tests/                        # HuTao.StoryRag.Eval：结构检查 + 离线评测
+    └── Runtime/              #   AgentRuntimeFactory 组合根 + AgentPool 角色实例池
+hosts/                        # 可执行宿主：HuTao.Pet（WPF 桌宠 + QQNT 聊天客户端）、HuTao.Host（控制台）
+tests/                        # HuTao.StoryRag.Eval（结构/离线评测）、HuTao.Pet.LifecycleChecks（WPF 生命周期 + 会话切换）
 ```
 
 > `CharacterCatalog` 现在在 `src/HuTao.Persona/Configuration`：它描述「有哪些角色、各自需要什么」，
 > 属于角色包而非领域编排。**依赖方向由两条用例守着**（`dependency_direction_acyclic` 扫 `using`，
 > `dependency_project_references_acyclic` 扫 `ProjectReference`），见 [`modules.md`](modules.md) §5。
 
-WPF 的 `CharacterThemeCatalog` 只保存视觉颜色，不保存 persona、语音或文件路径；这些统一来自 Core 的 `CharacterCatalog`。窗口交互按职责拆在 `MainWindow.xaml.cs`、`MainWindow.CharacterSelection.cs`、`MainWindow.DocumentReading.cs` 和 `MainWindow.ChatRoom.cs`，后续可继续把音频播放和主动调度拆成独立适配器。聊天室窗口独立为 `ChatRoomWindow.xaml(.cs)`。
+WPF 的 `CharacterThemeCatalog` 只保存视觉颜色，不保存 persona、语音或文件路径；这些统一来自 Core 的 `CharacterCatalog`。窗口交互按职责拆在 `MainWindow.xaml.cs`、`MainWindow.CharacterSelection.cs`、`MainWindow.DocumentReading.cs` 和 `MainWindow.ChatRoom.cs`，后续可继续把音频播放和主动调度拆成独立适配器。
+
+**QQNT 风格的聊天客户端**独立为 `ChatShellWindow.xaml(.cs)`，把"一个房间"扩成"一张会话表"：
+
+```text
+SessionStore (data/conversations/)      ← index.json + timeline.jsonl + view/{角色}.jsonl
+      │
+ChatSessionRuntime                       ← 一个会话的编排：激活 / 提交 / 交接 / 收尾
+      ├── AgentPool                      每角色唯一实例 + 租约仲裁
+      ├── AudienceProjection             timeline + 在场区间 → 某角色视角（纯函数）
+      └── ChatRoom                       群聊的导演与轮次（单聊直接走 ProactiveAsync）
+```
+
+`hosts/HuTao.Pet/ChatShell/` 里是视图模型与视觉工厂（头像、气泡、对话框）；`ChatShellStyle.xaml` 收全部视觉令牌，**UI 代码里不出现硬编码颜色**。桌宠通过 `IChatSurface` 打开它，因此桌宠的关闭排空链路不需要知道托的是哪个具体窗口。旧的 `ChatRoomWindow` 已被 `ChatShellWindow` 取代并删除。

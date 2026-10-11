@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using HuTao.Foundation.Abstractions;
@@ -177,7 +177,7 @@ public sealed class ResidentGptSovitsTtsEngine : ITtsEngine, IAsyncDisposable
                 throw await CreateHttpExceptionAsync("常驻 TTS 合成失败", response, ct).ConfigureAwait(false);
 
             Directory.CreateDirectory(_outputDir);
-            var outPath = Path.Combine(_outputDir, $"agent_tts_{DateTime.Now:yyyyMMdd_HHmmss_fff}.wav");
+            var outPath = Path.Combine(_outputDir, GeneratedAudioNaming.NewFileName(DateTime.Now));
             await using (var output = new FileStream(
                              outPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read,
                              bufferSize: 81920, useAsync: true))

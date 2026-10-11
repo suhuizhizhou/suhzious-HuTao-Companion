@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 
 namespace HuTao.Knowledge.Memory;
 
@@ -136,6 +136,24 @@ public sealed class MemoryRetriever
     /// 这正是阶段 2 的落点：模型看不到时间就会把三周前的「下周考试」当成现状。
     /// </summary>
     public string BuildPromptSection(IReadOnlyList<MemoryHit> hits, DateTimeOffset now, int maxCharacters = 900)
+        =>FormatPromptSection(hits,now,maxCharacters,_options.Persona);
+
+    /// <summary>
+    /// 把检索结果渲染成提示词片段。
+    ///
+    /// <paramref name="currentPersona"/> 决定"这条记忆能不能算我自己的话"：
+    /// 记忆文件按角色分，但旧数据（只有胡桃一个角色时写的）没有归属标签，
+    /// 甚至可能装着**另一个角色的自我认知**。实测：<c>memory_furina.json</c> 里有
+    /// "记录已清空~ 本堂主可都忘光啦，嘿嘿。"（"本堂主" 8 次、"往生堂" 10 次）。
+    /// 以前这条会被贴上「你曾说」喂给芙宁娜，她据此认定自己说过"本堂主"，随即模仿——
+    /// 这就是"芙宁娜用胡桃语气说话"的真正来源。
+    ///
+    /// 所以只有当归属**明确等于**当前角色时才说「你曾说」；归属不同或不明时，
+    /// 明确告诉模型"这不是你说的话"，避免它把别人的人格当成自己的。
+    /// </summary>
+    public static string FormatPromptSection(
+        IReadOnlyList<MemoryHit> hits, DateTimeOffset now, int maxCharacters = 900,
+        string currentPersona = "")
     {
         if (hits.Count == 0)
             return "";
@@ -145,7 +163,7 @@ public sealed class MemoryRetriever
         var used = builder.Length;
         foreach (var hit in hits)
         {
-            var scope = TemporalExpression.DescribeAge(hit.Record.ObservedAt, now);
+            var scope = hit.Record.ObservationTimeKnown?TemporalExpression.DescribeAge(hit.Record.ObservedAt, now):"发生时间未标注";
             var flags = new List<string>();
             if (hit.Expired)
                 flags.Add("已过时");
@@ -155,7 +173,16 @@ public sealed class MemoryRetriever
                 flags.Add("偏好");
             var label = flags.Count == 0 ? scope : $"{scope}·{string.Join('/', flags)}";
 
-            var speaker = hit.Record.Speaker switch { "user" => "用户说", "assistant" => "你曾说（不能据此认定用户事实）", _ => "提炼记忆" };
+            var speaker = hit.Record.Speaker switch
+            {
+                "user" => "用户说",
+                // 归属明确是本人 → 才敢说"你曾说"。归属不同或未知 → 明说是别人的/来源不明，
+                // 否则模型会把别人的人格当成自己说过的，并模仿其自称。
+                "assistant" when BelongsTo(hit.Record, currentPersona) => "你曾说（不能据此认定用户事实）",
+                "assistant" when !string.IsNullOrEmpty(hit.Record.Persona) => "另一个角色说的（不是你说的）",
+                "assistant" => "来源不明的旧记录（不一定是你说过的，不要当成自己的话，也不要模仿其自称）",
+                _ => "提炼记忆",
+            };
             var line = $"- [memory:{hit.Record.Id}; {label}; {speaker}] {hit.Record.Text}\n";
             if (used + line.Length > maxCharacters)
                 break;
@@ -187,6 +214,15 @@ public sealed class MemoryRetriever
     }
 
     /// <summary>真正的半衰期：每过一个半衰期分数减半。</summary>
+    /// <summary>
+    /// 这条记录是否确实属于当前角色。**只有"明确相等"才算属于**：
+    /// 空归属（旧数据）一律不算——宁可少说一句"你曾说"，也不要让模型把
+    /// 别的角色的人格当成自己说过的。
+    /// </summary>
+    private static bool BelongsTo(MemoryRecord record, string currentPersona)
+        => !string.IsNullOrWhiteSpace(currentPersona)
+           && string.Equals(record.Persona, currentPersona, StringComparison.Ordinal);
+
     private double Recency(MemoryRecord record, DateTimeOffset now)
     {
         var age = now - record.ObservedAt;

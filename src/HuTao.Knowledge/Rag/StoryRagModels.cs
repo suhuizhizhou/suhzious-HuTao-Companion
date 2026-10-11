@@ -197,6 +197,7 @@ public sealed record StoryRagResult(
     IReadOnlyList<StoryDocument> Background, StoryRagTrace Trace)
 {
     public IReadOnlyList<HuTao.Knowledge.Memory.MemoryHit> ConversationMemories { get; init; } = [];
+    public HuTao.Knowledge.Retrieval.EvidenceBundle? Knowledge {get;init;}
 }
 
 public interface IStoryRagService
@@ -222,9 +223,13 @@ public interface IStoryRagService
 
 public sealed record StoryAnswerSegment(
     string Text, string Emotion, IReadOnlyList<string> EvidenceIds, string Kind, string? VoiceId = null);
+public enum AnswerValidationLevel { Unchecked, Relaxed, Strict }
 public sealed record StoryAnswerResult(string Reply, IReadOnlyList<StoryAnswerSegment> Segments,
     bool Validated, IReadOnlyList<string> Issues, string Path)
 {
+    /// <summary>Strict is reserved for verified verbatim facts. Structure passing is not semantic entailment.</summary>
+    public AnswerValidationLevel ValidationLevel {get;init;}=AnswerValidationLevel.Unchecked;
+    public string SemanticReview {get;init;}="not-run";
     /// <summary>
     /// 模型**原始回包**（未解析、未降级）。
     ///

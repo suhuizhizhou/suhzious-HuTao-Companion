@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
@@ -14,6 +14,17 @@ internal sealed class QuotesDoc
 public static class PersonaLoader
 {
     public static PersonaProfile Load(string personaRoot)
+        => Load(personaRoot, generateLine: null);
+
+    /// <summary>
+    /// 加载人设包。
+    /// <paramref name="generateLine"/> 是"缺专属台词时按人设补一条"的能力。
+    /// 刻意做成委托而不是直接依赖 <c>ILLMProvider</c>：那样 <c>HuTao.Persona</c>
+    /// 就要认识 Dialogue 层，依赖方向会成环。宿主负责把 LLM 接上。
+    /// </summary>
+    public static PersonaProfile Load(
+        string personaRoot,
+        Func<ScriptedLines.Situation, CancellationToken, Task<string?>>? generateLine)
     {
         var root = Path.GetFullPath(personaRoot);
         if (!Directory.Exists(root))
@@ -51,6 +62,14 @@ public static class PersonaLoader
             quotes = doc?.SignatureVoices ?? [];
         }
 
+        // 情境台词：数据在 fallbacks.json，缺了会走中性兜底并后台补生成。
+        // 生成提示词要用系统提示词与口头禅，所以**在这里立刻把素材接上**——
+        // 漏了这一句，生成请求里就没有人设，补出来的台词会像路人。
+        var scripted = new ScriptedLines(root, name, generateLine);
+        scripted.AttachVoice(
+            systemPrompt,
+            string.Join('、', catchphrases.SignatureQuotes.Concat(catchphrases.Exclamations).Take(8)));
+
         return new PersonaProfile
         {
             Root = root,
@@ -61,6 +80,7 @@ public static class PersonaLoader
             Quotes = quotes,
             // 词表可选：缺了只是剧情检索不再认识这个角色的自称与别名，不影响启动。
             Lexicon = StoryLexicon.Load(Path.Combine(root, "lexicon.json")) ?? StoryLexicon.Empty,
+            Scripted = scripted,
         };
     }
 

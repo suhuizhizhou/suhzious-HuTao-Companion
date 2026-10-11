@@ -96,7 +96,7 @@ public sealed record ReactRetrievalResult(
     IReadOnlyList<ReactRetrievalStep> Steps,
     string Observation);
 
-public sealed class ReactRetrievalLoop
+public sealed partial class ReactRetrievalLoop
 {
     private readonly StoryKnowledgeTool _tool;
     private readonly ReactRetrievalOptions _options;
@@ -109,6 +109,7 @@ public sealed class ReactRetrievalLoop
     /// 所以上一轮对话拿到的证据与事实覆盖，下一轮仍然可用。
     /// </summary>
     public RetrievalMemory Memory => _memory;
+    public void ClearFocus()=>_memory.Clear();
 
     public ReactRetrievalLoop(StoryKnowledgeTool tool, ILLMProvider? llm = null, ReactRetrievalOptions? options = null,
         StoryLexicon? lexicon = null, RetrievalMemory? memory = null)
@@ -127,6 +128,12 @@ public sealed class ReactRetrievalLoop
     {
         if (string.IsNullOrWhiteSpace(input)) return null;
         var tasks = plannedTasks?.ToList() ?? await PlanAsync(input, history, ct).ConfigureAwait(false);
+        try {ReactTaskPlanValidator.Validate(tasks);}
+        catch(InvalidDataException)
+        {
+            tasks=[new("t1",input,[],[])];
+            BackendTrace.Current?.Note("非法任务依赖，整份计划退回确定性单次查询。");
+        }
         // 规划结果写进当前回合的追踪日志（如果有回合在跑）。
         // 这一段是「agent 的决策」与「RAG 的执行」之间的接缝：先看到 agent 点了哪个臂、谁依赖谁，
         // 紧接着才是那次调用的真实结果，因果关系不必靠事后反推。
@@ -173,7 +180,9 @@ public sealed class ReactRetrievalLoop
         for (var round = 0; round < _options.MaxRounds; round++)
         {
             var ready = tasks.Where(t => !completed.Contains(t.Id) && t.DependsOn.All(completed.Contains)).ToArray();
-            if (ready.Length == 0) ready = tasks.Where(t => !completed.Contains(t.Id)).Take(1).ToArray();
+            if (ready.Length == 0 && tasks.Any(t=>!completed.Contains(t.Id))) break;
+            if (steps.Count>=_options.MaxSubQueries) break;
+            ready=ready.Take(_options.MaxSubQueries-steps.Count).ToArray();
             if (ready.Length == 0)
             {
                 // 同一条问题最多追加 MaxRepairRounds 轮，重复问不会带来新证据。
@@ -190,6 +199,15 @@ public sealed class ReactRetrievalLoop
                     $"▶ 证据仍不足 → 追加补差轮 {followUp.Id}（循环自己合成，沿用服务默认臂；问题按缺口改写）");
                 BackendTrace.SetCallLabel($"补差轮 {followUp.Id} · 服务默认臂 · 循环合成");
             }
+            var blocked=ready.Where(t=>t.DependsOn.Any(d=>!byTask.TryGetValue(d,out var upstream) || upstream.Evidence.Count==0)).ToArray();
+            foreach(var task in blocked)
+            {
+                completed.Add(task.Id);
+                steps.Add(new(round+1,task.Query,StoryStatus.NotFound,0,0,false,"dependency-evidence-missing",
+                    task.Strategy,"agent",[],0,task.Id,task.DependsOn,task.RequiredFacts));
+            }
+            ready=ready.Except(blocked).ToArray();
+            if(ready.Length==0)continue;
             // 用**检索记忆**改写本轮查询：记忆还没覆盖的事实组补进查询（补差），
             // 已经问过且事实也没新增的原样复用。查询不再是开局一次性定死的——
             // 这是「多级多次查询交给 agent」在检索侧的落点。
@@ -205,7 +223,7 @@ public sealed class ReactRetrievalLoop
                 : roundStrategy is not null ? "configured" : "default").ToArray();
             // **两级召回的第二级**：agent 点名 ChapterScope 时，章节取自它 depends_on 的那些任务的证据
             // ——「先召回关键词的句子和它出现的章节，再召回该章节的全部相关内容」就是这条。
-            // 取不到依赖证据时给 null，让服务端退回摘要级匹配（如实降级，不偷换信号）。
+            // 有依赖而上游无证据的任务已被跳过，不能伪装成依赖执行后再做全局查询。
             var scopes = ready.Select(ScopeFor).ToArray();
             // 每个调用贴自己的身份（`AsyncLocal` 会随各子任务分别捕获），
             // 于是并发的同一轮调用在日志里也各自能认出是哪一步，而不是一堆无头无尾的块。
@@ -279,7 +297,7 @@ public sealed class ReactRetrievalLoop
                 var prompt =
                     "你是 Story RAG Query Planner。只返回 JSON：{\"tasks\":[{\"id\":\"t1\",\"query\":\"...\"," +
                     "\"required_facts\":[\"...\"],\"depends_on\":[],\"strategy\":\"Baseline\"}]}。" +
-                    "把用户问题拆成最多6个可独立检索的事实子任务；因果和时间解释任务依赖其前置事实；不要回答问题。\n" +
+                    "把用户问题拆成最多4个事实子任务、最多2层依赖；因果和时间解释任务依赖其前置事实；不要回答问题。\n" +
                     "每个子任务可以点名一条召回通道（strategy），取值只能是下面这些具名臂之一，**不要输出权重或分数**：\n" +
                     RetrievalStrategyCatalog.Describe() + "\n" +
                     "选择要点：问题里带引号要逐字原文 → LexicalOnly；问法与原文用词明显不同 → ConceptOnly；" +
@@ -292,19 +310,14 @@ public sealed class ReactRetrievalLoop
                     "用户问题：" + input;
                 var raw = await _llm.CompleteAsync(prompt, history, ct).ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(raw.Trim().Trim('`'));
-                var rows = doc.RootElement.GetProperty("tasks").EnumerateArray().Take(_options.MaxSubQueries).ToArray();
-                var parsed = rows.Select((row, i) => new ReactSubTask(
-                    row.TryGetProperty("id", out var id) ? id.GetString() ?? $"t{i + 1}" : $"t{i + 1}",
-                    row.GetProperty("query").GetString() ?? input,
-                    row.TryGetProperty("required_facts", out var facts) ? facts.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray() : [],
-                    row.TryGetProperty("depends_on", out var deps) ? deps.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray() : [],
-                    ParseArm(row))).ToList();
+                var parsed = doc.RootElement.GetProperty("tasks").EnumerateArray().Select(ReactTaskPlanValidator.Parse).ToList();
+                ReactTaskPlanValidator.Validate(parsed);
                 if (parsed.Count > 0) return parsed;
             }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
+            catch (Exception ex) when (ex is JsonException or InvalidDataException or InvalidOperationException or KeyNotFoundException)
             { /* 降级到确定性规划 */ }
         }
-        return BuildSubQueries(input).Select((query, i) => new ReactSubTask($"t{i + 1}", query, [], i == 0 ? [] : [$"t{i}"])).ToList();
+        return BuildSubQueries(input).Take(4).Select((query, i) => new ReactSubTask($"t{i + 1}", query, [], i == 0 ? [] : ["t1"])).ToList();
     }
 
     /// <summary>
@@ -329,25 +342,12 @@ public sealed class ReactRetrievalLoop
         _ => "默认臂",
     };
 
-    /// <summary>
-    /// 读 planner 给某个子任务点名的臂。**任何一步不合法都只当作「没点名」**，
-    /// 绝不抛异常：一个非法臂名把整轮规划打回确定性拆句，代价远大于忽略它。
-    /// 特别地，<c>"2"</c> 这类序号串必须被拒——那等于允许模型用序号隐式选臂，
-    /// 一次枚举重排就会静默改行为（<see cref="RetrievalStrategyCatalog.TryParse"/> 按名字判）。
-    /// </summary>
-    private static RetrievalStrategy? ParseArm(JsonElement row)
-    {
-        if (!row.TryGetProperty("strategy", out var value) || value.ValueKind != JsonValueKind.String)
-            return null;
-        return RetrievalStrategyCatalog.TryParse(value.GetString(), out var arm) ? arm : null;
-    }
-
     private async Task<StoryRagResult> RepairMissingFactsAsync(string input, IReadOnlyList<ReactSubTask> tasks,
         IReadOnlyList<ChatMessage> history, StoryRagResult pool, List<StoryRagResult> results,
         List<ReactRetrievalStep> steps, CancellationToken ct)
     {
         var text = string.Join('\n', pool.Evidence.SelectMany(e => new[] { e.Anchor }.Concat(e.Context)).Select(x => x.Text));
-        var missing = tasks.SelectMany(t => t.RequiredFacts).Distinct().Where(f => !text.Contains(f, StringComparison.OrdinalIgnoreCase)).Take(_options.MaxRepairRounds).ToArray();
+        var missing = tasks.SelectMany(t => t.RequiredFacts).Distinct().Where(f => !text.Contains(f, StringComparison.OrdinalIgnoreCase)).Take(Math.Max(0,Math.Min(_options.MaxRepairRounds,_options.MaxSubQueries-steps.Count))).ToArray();
         if (missing.Length == 0) return pool;
         var repairResults = await Task.WhenAll(missing.Select(f =>
         {

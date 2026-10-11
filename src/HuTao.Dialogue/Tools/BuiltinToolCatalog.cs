@@ -44,13 +44,7 @@ public static class BuiltinToolCatalog
                     Description: "加=add；减=subtract；乘/乘以=multiply；除以=divide；取余=remainder；次方=power"), Number("right")), a =>
                 {
                     var left = N(a, "left"); var right = N(a, "right");
-                    var value = S(a, "operation") switch
-                    {
-                        "add" => left + right, "subtract" => left - right, "multiply" => left * right,
-                        "divide" when right != 0 => left / right, "remainder" when right != 0 => left % right,
-                        "power" => Math.Pow(left, right), _ => throw new ArgumentException("division_by_zero")
-                    };
-                    if (!double.IsFinite(value)) throw new ArithmeticException("non_finite_result");
+                    var value = HuTao.Foundation.Computation.SafeArithmetic.Calculate(left,S(a,"operation"),right);
                     return Json(new { left, operation = S(a, "operation"), right, value });
                 }),
             new BuiltinTool("unit_convert", "长度、质量、时间、温度单位转换；不同量纲不能互转。",

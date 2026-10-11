@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using HuTao.Foundation.Abstractions;
 using HuTao.Bridge;
 
@@ -42,7 +42,7 @@ public sealed class GptSovitsTtsEngine : ITtsEngine
             throw new InvalidOperationException("便携 Python 初始化失败");
 
         Directory.CreateDirectory(_outputDir);
-        var outPath = Path.Combine(_outputDir, $"agent_tts_{DateTime.Now:yyyyMMdd_HHmmss_fff}.wav");
+        var outPath = Path.Combine(_outputDir, GeneratedAudioNaming.NewFileName(DateTime.Now));
 
         var psi = new ProcessStartInfo
         {

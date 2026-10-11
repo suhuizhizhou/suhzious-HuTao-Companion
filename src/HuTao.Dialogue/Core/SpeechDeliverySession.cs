@@ -20,6 +20,7 @@ public sealed class SpeechDeliverySession
         Func<CancellationToken, Task<TtsResult?>> synthesize, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        segment.DemandDelivery();
         if (SpeechText.IsAction(segment.Text) || _textOnly) return null;
         try
         {
@@ -27,11 +28,13 @@ public sealed class SpeechDeliverySession
             if (path is null)
                 path = (await synthesize(ct).ConfigureAwait(false))?.AudioPath;
             ct.ThrowIfCancellationRequested();
+            segment.DemandDelivery();
             if (path is null) { _textOnly = true; return null; }
             if (!File.Exists(path) || new FileInfo(path).Length == 0)
                 throw new FileNotFoundException("Speech audio unavailable");
             return path;
         }
+        catch (KnowledgeChangedException) {throw;}
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {

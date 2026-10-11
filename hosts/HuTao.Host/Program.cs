@@ -1,4 +1,4 @@
-﻿using HuTao.Foundation.Abstractions;
+using HuTao.Foundation.Abstractions;
 using HuTao.Persona;
 using HuTao.Foundation;
 using HuTao.Voice;
@@ -8,6 +8,53 @@ using HuTao.Dialogue.Runtime;
 // ── 装配（依赖注入风格，全部走接口，方便后续切换）──
 // 用法：dotnet run --project src/HuTao.Agent.Host [persona目录] [可选: tts-python路径]
 
+if(args.FirstOrDefault()=="--knowledge-backup")
+{
+    try
+    {
+        if(args.Length==2 && args[1]=="help")
+            Console.WriteLine("--knowledge-backup create DATABASE NEW_PACKAGE | restore PACKAGE NEW_DATABASE | restore-with-deletions PACKAGE CURRENT_DATABASE NEW_DATABASE | compare BASELINE_DATABASE CURRENT_DATABASE | prepare-sync PACKAGE CURRENT_DATABASE NEW_DIRECTORY | review-turns CANDIDATE QUARANTINE DECISION_JSON | adopt-turns CANDIDATE QUARANTINE DECISION_JSON (whole database, no activation; prepared recovery remains gated)");
+        else if(args.Length==4 && args[1]=="create")
+        {
+            if(!File.Exists(args[2]))throw new FileNotFoundException();
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(HuTao.Knowledge.Storage.KnowledgeBackupPackage.CreateFromFile(args[2],args[3])));
+        }
+        else if(args.Length==4 && args[1]=="restore")
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(HuTao.Knowledge.Storage.KnowledgeBackupPackage.Restore(args[2],args[3])));
+        else if(args.Length==5 && args[1]=="restore-with-deletions")
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(HuTao.Knowledge.Storage.KnowledgeBackupPackage.RestoreWithDeletions(args[2],args[3],args[4])));
+        else if(args.Length==4 && args[1]=="compare")
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(HuTao.Knowledge.Storage.KnowledgeRecoveryDiff.Compare(args[2],args[3])));
+        else if(args.Length==5 && args[1]=="prepare-sync")
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(HuTao.Knowledge.Storage.KnowledgeRecoveryPreparation.Prepare(args[2],args[3],args[4])));
+        else if(args.Length==5 && args[1] is "review-turns" or "adopt-turns")
+        {
+            if(!File.Exists(args[2]) || new FileInfo(args[4]).Length>32768)throw new ArgumentException("Existing candidate and decision file up to 32 KiB required.");
+            var decision=System.Text.Json.JsonSerializer.Deserialize<HuTao.Knowledge.Storage.RecoveryAdoptionDecision>(File.ReadAllText(args[4]))??throw new ArgumentException("Decision missing.");
+            var parts=decision.Namespace.Split(':');if(parts.Length!=4 || parts[0]!="memory")throw new ArgumentException("Private namespace required.");
+            var access=HuTao.Knowledge.Retrieval.KnowledgeAccessContext.ForSession(parts[1],parts[2],parts[3],[]);
+            var database=new HuTao.Knowledge.Storage.SqliteKnowledgeDatabase(args[2]);
+            object result=args[1]=="review-turns"
+                ?HuTao.Knowledge.Storage.KnowledgeRecoveryAdoption.Review(database,args[3],access,decision.ReviewerId,decision.EvidenceIds)
+                :HuTao.Knowledge.Storage.KnowledgeRecoveryAdoption.Adopt(database,args[3],access,decision);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+        }
+        else throw new ArgumentException();
+    }
+    catch(Exception ex){Console.Error.WriteLine("Knowledge backup failed: "+ex.GetType().Name);Environment.ExitCode=1;}
+    return;
+}
+if(args.FirstOrDefault()=="--knowledge-admin")
+{
+    ProjectEnvironment.LoadDotEnv();
+    Environment.ExitCode=await KnowledgeAdminCommand.RunAsync(args.Skip(1).ToArray(),Console.Out);
+    return;
+}
+if(args.FirstOrDefault()=="--knowledge-rollback")
+{
+    Environment.ExitCode=await KnowledgeRollbackCommand.RunAsync(args.Skip(1).ToArray(),Console.Out);
+    return;
+}
 ProjectEnvironment.LoadDotEnv(log: Console.WriteLine); // 先加载项目根目录的 .env，不覆盖已有环境变量
 
 var personaRoot = ResolvePersonaRoot(args);
@@ -26,7 +73,7 @@ var runtimeFactory = new AgentRuntimeFactory(
         preferResident: false,
         log: Console.WriteLine),
     Console.WriteLine);
-var runtime = runtimeFactory.Create(
+await using var runtime = runtimeFactory.Create(
     definition,
     allowAppAwareness: () => ReadBooleanEnvironment("HU_TAO_ALLOW_APP_AWARENESS", defaultValue: true),
     documentProgress: message => Console.WriteLine(message));
@@ -104,11 +151,15 @@ if (chatCharacters.Length < 2)
 }
 else
 {
+    var chatRuntimes=new List<AgentRuntime>();
+    try
+    {
     var participants = new List<HuTao.Dialogue.ChatRoom.ChatRoomParticipant>();
     foreach (var def in chatCharacters)
     {
         // memoryScope 与 WPF 聊天室窗口用同一个：命令行与窗口看到的是同一场对话历史。
         var rt = runtimeFactory.Create(def, allowAppAwareness: () => false, memoryScope: "chatroom");
+        chatRuntimes.Add(rt);
         participants.Add(new HuTao.Dialogue.ChatRoom.ChatRoomParticipant(
             def.Id, def.Name, rt.Agent, rt.Persona));
 
@@ -142,6 +193,8 @@ else
             Console.WriteLine($"      导演 → {d.NextSpeakerId}：{d.Reason}");
     }, CancellationToken.None);
     Console.WriteLine($"  共 {room.TurnCount} 轮。");
+    }
+    finally {foreach(var chatRuntime in chatRuntimes)await chatRuntime.DisposeAsync();}
 }
 
 Console.WriteLine("\n[done] Agent 骨架演示完成。");
